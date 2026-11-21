@@ -36,18 +36,19 @@ const FACE = {
   ps: { A: '✕', B: '○', X: '□', Y: '△' },
 };
 
-// Hints per context and device. Phase 3 adds mission contexts (m1..m5) next to "latihan".
+// Hints per context and device. Contexts: latihan (also used by the other practice missions),
+// delivery (M4), freeroam. Labels are short so they fit in the 1152 px bar.
+const KB_BASE = [['WASD', 'Gerak'], [['Q', 'E'], 'Putar'], [['Spasi', 'C'], 'Naik/Turun'], ['X', 'Takeoff/Land (tahan)'], ['H', 'Home']];
+const PAD_BASE = [['Stick kiri', 'Naik/Putar'], ['Stick kanan', 'Gerak'], ['A', 'Takeoff/Land (tahan)'], ['B', 'Home']];
 const HINTS = {
-  latihan: {
-    keyboard: {
-      left: [['WASD', 'Gerak'], [['Q', 'E'], 'Putar'], [['Spasi', 'C'], 'Naik/Turun'],
-             ['X', 'Takeoff/Land (tahan)'], ['H', 'Return home']],
-      right: [],
-    },
-    gamepad: {
-      left: [['Stick kiri', 'Naik/Putar'], ['Stick kanan', 'Gerak'], ['A', 'Takeoff/Land (tahan)'], ['B', 'Return home']],
-      right: [],
-    },
+  latihan: { keyboard: { left: KB_BASE, right: [['Esc', 'Jeda']] }, gamepad: { left: PAD_BASE, right: [['LB', 'Kamera'], ['RB', 'Kamera']] } },
+  delivery: {
+    keyboard: { left: KB_BASE, right: [['P', 'Ambil/Lepas'], ['V', 'Kamera'], ['Esc', 'Jeda']] },
+    gamepad: { left: PAD_BASE, right: [['D-pad ►', 'Ambil/Lepas'], ['RB', 'Kamera']] },
+  },
+  freeroam: {
+    keyboard: { left: KB_BASE, right: [['B', 'Objek'], ['V', 'Kamera'], ['Tab', 'Panel'], ['Esc', 'Jeda']] },
+    gamepad: { left: PAD_BASE, right: [['RB', 'Kamera']] },
   },
 };
 

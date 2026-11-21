@@ -24,16 +24,17 @@ export function createHud(root, config) {
       <div class="row mono"><span>ALT</span><span id="t-alt"></span></div>
       <div class="row mono"><span>SPD</span><span id="t-spd"></span></div>
       <div class="row mono"><span>BAT</span><span id="t-bat"></span></div></div>
-    <div id="goal" class="panel"><h1>Latihan terbang</h1>
+    <div id="goal" class="panel"><h1 id="g-title">Latihan terbang</h1>
       <div class="big" id="g-main"></div><div class="bar"><i id="g-bar"></i></div>
       <div class="meta mono"><span id="g-time"></span><span id="g-hit"></span><span id="g-mode"></span></div></div>
     <div id="status" class="panel"><h2>Status</h2>
-      <div class="row"><span>Gateway</span><span class="muted">Belum aktif</span></div>
+      <div class="row"><span>Gateway</span><span id="s-gw" class="muted">...</span></div>
       <div class="row"><span>AI</span><span class="muted">Belum aktif</span></div>
       <div class="row"><span>Kontrol</span><span id="s-ctl"></span></div>
       <div class="row"><span>FPS</span><span class="mono" id="s-fps"></span></div></div>
     <div id="minimap" class="panel"><canvas id="mm" width="296" height="296"></canvas></div>
     <div id="pip" class="panel"><div class="hole"></div><div class="tag">Kamera drone</div></div>
+    <div id="side" class="panel"><h2>Asisten AI</h2><div id="side-rows"></div><p class="muted">Belum terhubung ke server AI (Fase 4). Tombol 1-4 mengganti pilihan.</p></div>
     <div id="hint" class="panel"></div>
     <div id="toast" class="panel"></div>
     <div id="hold"><b>Tahan</b></div>
@@ -42,23 +43,38 @@ export function createHud(root, config) {
   const el = {
     alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
+    title: $('g-title'), gw: $('s-gw'), side: $('side'), sideRows: $('side-rows'),
     hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'),
   };
 
-  // Minimap: static layer (buildings, obstacles, pad) drawn once at 2x; dynamic layer each update.
+  // Minimap: static layer (buildings, obstacles, pad, mission spots) drawn once per world; dynamic layer each update.
   const mm = $('mm').getContext('2d');
   const S = MAP.scale * 2, C = 148;
   const stat = document.createElement('canvas');
   stat.width = stat.height = 296;
   const sc = stat.getContext('2d');
-  sc.fillStyle = '#e9e7e2'; sc.fillRect(0, 0, 296, 296);
-  sc.fillStyle = '#9aa0a8';
-  for (const b of config.buildings) sc.fillRect(C + (b.x - b.w / 2) * S, C + (b.z - b.d / 2) * S, b.w * S, b.d * S);
-  sc.fillStyle = '#d9822b';
-  for (const b of config.obstacles) sc.fillRect(C + (b.x - b.w / 2) * S, C + (b.z - b.d / 2) * S, b.w * S, b.d * S);
-  sc.fillStyle = '#fff'; sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 2;
-  sc.beginPath(); sc.arc(C, C, 6, 0, Math.PI * 2); sc.fill(); sc.stroke();
-  sc.fillStyle = '#5a5a56'; sc.font = '600 16px system-ui, sans-serif'; sc.fillText('Peta mini', 8, 20);
+  const rect = (b) => sc.fillRect(C + (b.x - b.w / 2) * S, C + (b.z - b.d / 2) * S, b.w * S, b.d * S);
+  let mission = null;
+  function drawStatic(cfg) {
+    mission = cfg.mission || null;
+    sc.fillStyle = '#e9e7e2'; sc.fillRect(0, 0, 296, 296);
+    sc.fillStyle = '#9aa0a8';
+    for (const b of cfg.buildings) rect(b);
+    sc.fillStyle = '#d9822b';
+    for (const b of cfg.obstacles) rect(b);
+    if (mission) {
+      sc.fillStyle = 'rgba(214,69,69,0.45)';
+      for (const z of mission.noFly) sc.fillRect(C + z.min[0] * S, C + z.min[1] * S, (z.max[0] - z.min[0]) * S, (z.max[1] - z.min[1]) * S);
+      for (const [spot, color] of [[mission.pickup, '#f5b700'], [mission.drop, '#2ea66b']]) {
+        sc.fillStyle = color; sc.beginPath(); sc.arc(C + spot.x * S, C + spot.z * S, 6, 0, Math.PI * 2); sc.fill();
+        sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 1; sc.stroke();
+      }
+    }
+    sc.fillStyle = '#fff'; sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 2;
+    sc.beginPath(); sc.arc(C, C, 6, 0, Math.PI * 2); sc.fill(); sc.stroke();
+    sc.fillStyle = '#5a5a56'; sc.font = '600 16px system-ui, sans-serif'; sc.fillText('Peta mini', 8, 20);
+  }
+  drawStatic(config);
 
   let toastUntil = 0;
   let lastHold = -1;
@@ -74,6 +90,19 @@ export function createHud(root, config) {
 
   return {
     setHints,
+    // New world (mission start): redraw the static minimap layer.
+    setWorld: drawStatic,
+    addMapBox(b) { sc.fillStyle = '#d9822b'; rect(b); },
+    setVisible(on) { root.style.visibility = on ? 'visible' : 'hidden'; },
+    setTitle(t) { el.title.textContent = t; },
+    setGateway(text) { el.gw.textContent = text; },
+    // Side panel (Tab). items: [{label, on}] -> rows "1 Label  ON/OFF"
+    setPanel(open, items) {
+      el.side.style.display = open ? 'block' : 'none';
+      if (!open) return;
+      el.sideRows.innerHTML = items.map((it, i) =>
+        `<div class="row"><span><span class="key">${i + 1}</span> ${it.label}</span><b>${it.on ? 'ON' : 'OFF'}</b></div>`).join('');
+    },
     setDebug(text) {
       el.dbg.style.display = text ? 'block' : 'none';
       if (text) el.dbg.textContent = text;
@@ -96,9 +125,9 @@ export function createHud(root, config) {
       const t = s.tel;
       el.alt.textContent = `${t.alt.toFixed(1)} m`;
       el.spd.textContent = `${t.speed.toFixed(1)} m/s`;
-      el.bat.textContent = `${s.battery}%`;
-      el.main.textContent = `Checkpoint ${s.checkpoints} dari ${s.totalCheckpoints}`;
-      el.bar.style.width = `${(s.checkpoints / s.totalCheckpoints) * 100}%`;
+      el.bat.textContent = `${Math.round(s.battery)}%`;
+      el.main.textContent = s.goalText;
+      el.bar.style.width = `${s.progress * 100}%`;
       el.time.textContent = `Waktu ${fmtTime(s.flightTime)}`;
       el.hit.textContent = `Tabrakan ${s.collisions}`;
       if (t.mode !== lastMode) { lastMode = t.mode; el.mode.textContent = t.mode; }

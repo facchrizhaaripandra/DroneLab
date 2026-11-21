@@ -34,8 +34,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
 #pip .hole { position: absolute; left: 7px; top: 7px; width: 254px; height: 140px; box-shadow: 0 0 0 8px rgba(255,255,255,0.92); outline: 1px solid #bdbbb5; }
 #pip .tag { position: absolute; left: 12px; top: 12px; padding: 1px 6px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.92); }
 
-#hint { left: 64px; top: 628px; width: 1152px; height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 14px; white-space: nowrap; }
-#hint .item { display: inline-flex; align-items: center; gap: 4px; font-size: 16px; }
+#hint { left: 64px; top: 628px; width: 1152px; height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; }
+#hint .item { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; }
 #hint .sp { flex: 1; }
 .key { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 30px; padding: 0 8px; box-sizing: border-box; background: #1f1f1f; color: #fff; border-radius: 6px; font: 600 14px ui-monospace, Menlo, Consolas, monospace; margin-right: 2px; }
 
@@ -43,3 +43,31 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
 #hold { position: absolute; left: 604px; top: 500px; width: 72px; height: 72px; border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: conic-gradient(#1f1f1f 0%, #ddd 0); }
 #hold b { width: 54px; height: 54px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
 #dbg { left: 64px; top: 190px; margin: 0; width: 360px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; display: none; }
+
+#side { left: 916px; top: 160px; width: 300px; height: 288px; display: none; font-size: 16px; }
+#side h2 { margin: 0 0 6px; font-size: 14px; font-weight: 500; color: #5a5a56; }
+#side .row { height: 34px; align-items: center; font-weight: 600; }
+#side p { margin: 8px 0 0; font-size: 13px; }
+
+/* Menu overlay (the only part of the UI that takes pointer input). */
+#menu { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f1f1f; }
+#menu.dim { background: rgba(20,24,30,0.55); }
+#menu .card { width: 620px; max-height: 640px; overflow: auto; box-sizing: border-box; padding: 24px 28px; background: #fff; border: 1px solid #1f1f1f; }
+#menu h1 { margin: 0; font-size: 30px; }
+#menu .sub { margin: 4px 0 14px; color: #5a5a56; font-size: 17px; min-height: 22px; }
+#menu .list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+#menu .mi { display: flex; justify-content: space-between; align-items: baseline; min-height: 48px; padding: 8px 16px; font: 600 20px system-ui, sans-serif; text-align: left; background: #fff; color: #1f1f1f; border: 1px solid #1f1f1f; cursor: pointer; }
+#menu .mi small { font-weight: 400; font-size: 15px; color: #5a5a56; }
+#menu .mi.sel { background: #1f1f1f; color: #fff; }
+#menu .mi.sel small { color: #ddd; }
+#menu .mi:disabled { color: #9a9a94; border-style: dashed; cursor: default; }
+#menu .mi.sel:disabled { background: #fff; }
+#menu .foot { margin: 14px 0 0; font-size: 14px; color: #5a5a56; }
+#menu .score b { font-size: 56px; }
+#menu .score span { font-size: 20px; margin-left: 8px; }
+#menu .tag { margin: 2px 0 10px; font-size: 14px; color: #5a5a56; }
+#menu table { width: 100%; border-collapse: collapse; font-size: 16px; }
+#menu td { padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+#menu td.num { white-space: nowrap; font-weight: 600; }
+#menu .muted { color: #5a5a56; font-size: 14px; }
+#menu .help td:first-child { font-weight: 600; white-space: nowrap; }

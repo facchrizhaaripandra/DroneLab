@@ -1,18 +1,26 @@
-// Main loop: fixed 1/60 s physics (accumulator) decoupled from rendering, with measured FPS.
+// Main loop and app flow. Fixed 1/60 s physics (accumulator) decoupled from rendering, with measured FPS.
+// States: menu -> play <-> paused -> result -> menu. Everything the player sees comes from a world config.
 import * as THREE from 'three';
 import './hud.css';
 import { STEP } from './config.js';
 import { Flight } from './flight.js';
-import { makeDefaultConfig, buildWorld } from './world.js';
+import { buildWorld } from './world.js';
+import { makeMissionConfig, normalizeConfig } from './worldconfig.js';
 import { createDrone } from './drone.js';
 import { FollowCamera } from './camera.js';
 import { createInput } from './input.js';
 import { Autopilot } from './autopilot.js';
 import { buildHints } from './bindings.js';
 import { createHud, PIP_VIEW, actionLabel } from './hud.js';
+import { createMenu } from './ui.js';
+import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec } from './screens.js';
+import { MISSIONS, getMission, MissionRun } from './missions.js';
+import { Battery } from './battery.js';
+import { createGateway } from './gateway.js';
 import { events } from './events.js';
 
 const W = 1280, H = 720; // the stage is always 16:9; the window letterboxes it
+const GATEWAY_URL = import.meta.env?.VITE_GATEWAY_URL || 'http://localhost:8000';
 
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -32,36 +40,164 @@ function layout() {
 window.addEventListener('resize', layout);
 layout();
 
-const config = makeDefaultConfig(42);
-const world = buildWorld(scene, config);
-const sim = new Flight();
+// ---- objects that live for the whole app ----
+let config = normalizeConfig(makeMissionConfig('freeroam', 42));
+let world = buildWorld(scene, config);
+let sim = new Flight();
 const drone = createDrone(scene);
 const chase = new FollowCamera(camera);
 const input = createInput();
 const autopilot = new Autopilot();
 const hud = createHud(document.getElementById('hud'), config);
+const menu = createMenu(stage);
+const gateway = createGateway(GATEWAY_URL);
 
-// Discrete actions from any device arrive on the event bus.
-events.on('input', (e) => {
-  const now = performance.now();
-  if (e.name === 'takeoff_land') {
-    if (sim.mode === 'landed') { sim.takeoff(5); hud.toast('Takeoff 5 m', now); }
-    else { autopilot.cancel(); sim.land(); hud.toast('Mendarat', now); }
-  } else if (e.name === 'home') {
-    hud.toast(autopilot.start(sim) ? 'Return home' : 'Return home: drone harus sedang terbang', now);
-  } else if (e.name === 'spray') {
-    hud.toast(`${actionLabel('spray')} ${e.on ? 'ON' : 'OFF'} (belum terhubung)`, now);
+// ---- app state ----
+let state = 'menu';           // menu | play | paused | result
+let session = null;           // { kind: 'mission' | 'freeroam', def, run, runId, battery, extra }
+let panelOpen = false;
+const assist = [              // freeroam side panel toggles (not connected to the AI server yet)
+  { label: 'Deteksi objek', on: false }, { label: 'Jalur A*', on: false },
+  { label: 'Auto-hindari', on: false }, { label: 'Auto-pilot', on: false },
+];
+let hintContext = 'latihan', hintDevice = '', hintType = '';
+let flightTime = 0;
+const toast = (text) => hud.toast(text, performance.now());
+
+function setMenuMode(on) { input.menuMode = on; }
+function refreshGatewayLabel() { hud.setGateway(gateway.mode === 'online' ? 'Tersambung' : 'Mode lokal (stub)'); }
+gateway.check().then(refreshGatewayLabel);
+
+// Replace the world, the drone state and the HUD map in one place (used by every mission start).
+function loadWorld(cfg) {
+  world.dispose();
+  config = normalizeConfig(cfg);
+  world = buildWorld(scene, config);
+  sim = new Flight();
+  autopilot.cancel();
+  chase.ready = false;
+  flightTime = 0;
+  panelOpen = false;
+  hud.setWorld(config);
+}
+
+// ---- screens ----
+const cbMain = () => showMain();
+function showMain() {
+  state = 'menu'; setMenuMode(true); hud.setVisible(false);
+  menu.open(mainMenuSpec({
+    quickStart: () => startMission(getMission('latihan_terbang')),
+    missions: showMissions,
+    freeroam: startFreeroam,
+    help: () => menu.open(helpSpec({ back: showMain })),
+  }));
+}
+
+async function showMissions() {
+  await gateway.check();
+  refreshGatewayLabel();
+  menu.open(missionSpec(MISSIONS, gateway.mode, { start: startMission, back: showMain }));
+}
+
+function enterPlay(context, title) {
+  menu.close(); setMenuMode(false); state = 'play'; hud.setVisible(true);
+  hintContext = context; hintDevice = ''; // force the hint bar to rebuild
+  hud.setTitle(title);
+  hud.setPanel(false, assist);
+}
+
+async function startMission(def) {
+  menu.open({ title: 'Memuat misi...', subtitle: def.title, items: [] });
+  let cfg, runId = null;
+  if (def.tier === 'utama') {
+    const r = await gateway.startRun({ mission_id: def.id, variant: 'kota', player: 'pemain' });
+    cfg = r.config; runId = r.run_id;
+    refreshGatewayLabel();
   } else {
-    hud.toast(`${actionLabel(e.name)} (belum terhubung)`, now);
+    cfg = makeMissionConfig(def.id, 42);
+  }
+  loadWorld(cfg);
+  const run = new MissionRun(def.id, config, (type, e) => { if (runId) gateway.event(runId, e); });
+  session = { kind: 'mission', def, run, runId, battery: new Battery(config.battery) };
+  enterPlay(def.id === 'm4_delivery' ? 'delivery' : 'latihan', def.title);
+}
+
+function startFreeroam() {
+  loadWorld(makeMissionConfig('freeroam', 42));
+  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0 };
+  enterPlay('freeroam', 'Freeroam');
+}
+
+function pauseGame() {
+  state = 'paused'; setMenuMode(true);
+  menu.open(pauseSpec({
+    resume: () => { menu.close(); setMenuMode(false); state = 'play'; last = performance.now(); },
+    retry: () => (session.kind === 'mission' ? startMission(session.def) : startFreeroam()),
+    main: showMain,
+  }));
+}
+
+async function endMission() {
+  state = 'result'; setMenuMode(true);
+  const run = session.run, level = Math.round(session.battery.level);
+  const fin = { t_ms: run.tMs, battery: level, reason: run.reason };
+  let res = null, official = false;
+  if (session.runId) {
+    res = await gateway.finish(session.runId, fin);
+    official = gateway.official && !res.offline;
+    if (res.offline) res = null;
+  }
+  if (!res) res = run.result(level); // practice missions, or a gateway that dropped out: provisional score
+  menu.open(resultSpec(session.def, run.reason, res, official, {
+    retry: () => startMission(session.def),
+    missions: showMissions,
+    main: showMain,
+  }));
+}
+
+// ---- discrete input events ----
+events.on('input', (e) => {
+  if (state !== 'play') return;
+  if (e.name === 'takeoff_land') {
+    if (sim.mode === 'landed') { sim.takeoff(5); toast('Takeoff 5 m'); }
+    else { autopilot.cancel(); sim.land(); toast('Mendarat'); }
+  } else if (e.name === 'home') {
+    toast(autopilot.start(sim) ? 'Return home' : 'Return home: drone harus sedang terbang');
+  } else if (e.name === 'pause') {
+    pauseGame();
+  } else if (e.name === 'camera_next' || e.name === 'camera_prev') {
+    toast(chase.cycle(e.name === 'camera_next' ? 1 : -1).label);
+  } else if (e.name === 'pickup_drop') {
+    const msg = session.run && session.run.pickupDrop(sim);
+    toast(msg || 'Tidak ada paket di mode ini');
+  } else if (e.name === 'add_object') {
+    if (session.kind !== 'freeroam') { toast('Tambah objek hanya di freeroam'); return; }
+    const yaw = (sim.yaw * Math.PI) / 180;
+    const b = world.addBox(sim.pos[0] + Math.sin(yaw) * 8, sim.pos[2] - Math.cos(yaw) * 8);
+    if (b) { hud.addMapBox(b); session.extra++; toast('Objek ditambah'); } else toast('Batas objek tercapai');
+  } else if (e.name === 'panel_ai') {
+    if (session.kind !== 'freeroam') { toast('Panel hanya di freeroam'); return; }
+    panelOpen = !panelOpen;
+    hud.setPanel(panelOpen, assist);
+  } else if (e.name === 'spray') {
+    toast(`${actionLabel('spray')} ${e.on ? 'ON' : 'OFF'} (belum terhubung)`);
+  } else {
+    toast(`${actionLabel(e.name)} (belum terhubung)`);
   }
 });
+window.addEventListener('keydown', (e) => { // panel toggles 1-4 (keyboard only for now)
+  if (state !== 'play' || !panelOpen || !/^Digit[1-4]$/.test(e.code)) return;
+  const a = assist[Number(e.code.slice(5)) - 1];
+  a.on = !a.on;
+  hud.setPanel(true, assist);
+});
 
-// Timing and FPS measurement (no allocations inside the loop).
+showMain();
+
+// ---- timing and FPS (no allocations inside the loop, except the 10 Hz HUD/telemetry tick) ----
 let last = performance.now();
 let acc = 0;
 let frames = 0, fpsTime = 0, fps = 0, msAvg = 16.7, hudTime = 0;
-let flightTime = 0;
-let hintDevice = '', hintType = '';
 const tmpView = { x: PIP_VIEW.x, y: H - PIP_VIEW.y - PIP_VIEW.h, w: PIP_VIEW.w, h: PIP_VIEW.h };
 
 function frame(now) {
@@ -74,19 +210,27 @@ function frame(now) {
   input.poll(dt);
   if (autopilot.active && input.manual) autopilot.cancel(); // the pilot always wins
 
-  // Fixed-step physics. Max 5 steps per frame to avoid a spiral of death.
-  acc += dt;
-  let n = 0;
-  while (acc >= STEP && n < 5) {
-    if (autopilot.active) autopilot.step(sim);
-    else sim.applyAction(input.action); // single entry point for every input source
-    sim.step(STEP, world.colliders);
-    world.update(sim.pos);
-    if (sim.mode !== 'landed') flightTime += STEP;
-    acc -= STEP;
-    n++;
+  // Fixed-step physics, only while playing. Max 5 steps per frame to avoid a spiral of death.
+  if (state === 'play') {
+    acc += dt;
+    let n = 0;
+    while (acc >= STEP && n < 5) {
+      if (autopilot.active) autopilot.step(sim);
+      else sim.applyAction(input.action); // single entry point for every input source
+      sim.step(STEP, world.colliders);
+      world.update(sim.pos);
+      const airborne = sim.mode !== 'landed';
+      const run = session.run;
+      if (session.kind === 'mission') {
+        session.battery.step(STEP, airborne, Math.hypot(sim.vel[0], sim.vel[1], sim.vel[2]), run.payloadKg);
+        run.step(STEP, sim, session.battery.level, world.passedCount, world.rings.length);
+      } else if (airborne) flightTime += STEP;
+      acc -= STEP;
+      n++;
+      if (run && run.done) { endMission(); break; }
+    }
+    if (n === 5) acc = 0;
   }
-  if (n === 5) acc = 0;
 
   // Render with interpolation between the last two physics states.
   const alpha = acc / STEP;
@@ -112,18 +256,34 @@ function frame(now) {
   hud.setHold(input.holdProgress);
   if (input.device !== hintDevice || input.padType !== hintType) { // rebuild hints only on change
     hintDevice = input.device; hintType = input.padType;
-    hud.setHints(buildHints('latihan', hintDevice, hintType));
+    hud.setHints(buildHints(hintContext, hintDevice, hintType));
   }
   hudTime += raw;
   if (hudTime >= 0.1) {
     hudTime = 0;
     hud.setDebug(input.debugOn ? input.debugText() : '');
-    hud.update({
-      tel: sim.telemetry(), fps, ms: msAvg, battery: 100, flightTime,
-      collisions: sim.collisionCount, checkpoints: world.passedCount, totalCheckpoints: world.rings.length,
-      rings: world.rings,
-      deviceLabel: input.device === 'gamepad' ? `Controller (${input.padType === 'ps' ? 'PlayStation' : 'Xbox'})` : 'Keyboard',
-    }, now);
+    if (state === 'play' || state === 'paused') updateHud(now);
+  }
+}
+
+function updateHud(now) {
+  const run = session.run;
+  const tel = sim.telemetry();
+  const level = session.battery.level;
+  hud.update({
+    tel, fps, ms: msAvg, battery: level,
+    flightTime: run ? run.t : flightTime,
+    collisions: sim.collisionCount,
+    goalText: run ? run.text || 'Lepas landas (tahan X / A)' : `Terbang bebas · objek ditambah: ${session.extra}`,
+    progress: run ? run.progress : 0,
+    rings: world.rings,
+    deviceLabel: input.device === 'gamepad' ? `Controller (${input.padType === 'ps' ? 'PlayStation' : 'Xbox'})` : 'Keyboard',
+  }, now);
+  if (state === 'play' && session.runId) { // official runs: 10 Hz telemetry to the gateway
+    gateway.telemetry({
+      t_ms: run.tMs, pos: tel.pos, vel: tel.vel, yaw: tel.yaw, roll: tel.roll, pitch: tel.pitch,
+      battery: Math.round(level), payload_kg: run.payloadKg, spraying: false, collision: tel.collision,
+    });
   }
 }
 requestAnimationFrame(frame);

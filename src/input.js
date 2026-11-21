@@ -7,6 +7,13 @@ import { events } from './events.js';
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const BUTTONS = 17;
 
+// Menu navigation (used while input.menuMode is true). Same events for keyboard and controller.
+const NAV_KEYS = {
+  ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left',
+  ArrowRight: 'right', KeyD: 'right', Enter: 'ok', NumpadEnter: 'ok', Space: 'ok', Escape: 'back', Backspace: 'back',
+};
+const NAV_PAD = { 12: 'up', 13: 'down', 14: 'left', 15: 'right', 0: 'ok', 1: 'back', 9: 'back' };
+
 export function createInput() {
   const keys = new Set();
   const kbd = { yaw: 0, climb: 0, strafe: 0, forward: 0 };
@@ -20,6 +27,7 @@ export function createInput() {
     device: 'keyboard',      // last used device: 'keyboard' | 'gamepad'
     padType: 'xbox',         // 'xbox' | 'ps' (only meaningful for gamepad)
     holdProgress: 0,         // 0..1, takeoff/land hold-to-confirm
+    menuMode: false,         // true while a menu is open: only 'nav' events, the drone gets no action
     debugOn: false,          // toggled with the ` key: shows raw gamepad data in the HUD
     config: { ...DEFAULT_INPUT },
     bindings: { ...DEFAULT_KEYS },
@@ -50,6 +58,7 @@ export function createInput() {
   window.addEventListener('gamepaddisconnected', dropPad);
 
   let sprayOn = false;
+  let holdArmed = true;
   const emit = (name, extra) => events.emit('input', { name, ...extra });
 
   window.addEventListener('keydown', (e) => {
@@ -58,6 +67,11 @@ export function createInput() {
     keys.add(e.code);
     if (e.code === 'Backquote') { input.debugOn = !input.debugOn; return; }
     input.device = 'keyboard';
+    if (input.menuMode) {
+      const dir = NAV_KEYS[e.code];
+      if (dir) events.emit('nav', { dir });
+      return;
+    }
     const name = codeToImpulse[e.code];
     if (name && !e.repeat) emit(name);
   });
@@ -105,8 +119,9 @@ export function createInput() {
         const down = gp.buttons[i].pressed;
         if (down && !prev[i]) {
           activity = true;
-          const name = PAD_IMPULSES[i];
-          if (name) emit(name);
+          if (input.menuMode) {
+            if (NAV_PAD[i]) events.emit('nav', { dir: NAV_PAD[i] });
+          } else if (PAD_IMPULSES[i]) emit(PAD_IMPULSES[i]);
         }
         prev[i] = down;
       }
@@ -116,12 +131,16 @@ export function createInput() {
     }
 
     // Hold-to-confirm takeoff/land (X on keyboard, A on gamepad).
-    const holding = keys.has(input.bindings.takeoffLand) || padDown;
+    // After a menu closes, the button that confirmed it may still be down: wait for a release first.
+    const rawHold = keys.has(input.bindings.takeoffLand) || padDown;
+    if (input.menuMode) holdArmed = false;
+    else if (!rawHold) holdArmed = true;
+    const holding = rawHold && holdArmed && !input.menuMode;
     if (hold.update(dt, holding)) emit('takeoff_land');
     input.holdProgress = holding ? hold.progress : 0;
 
     // Hold-to-spray (G or RT). Only the state change is announced.
-    const spray = keys.has(input.bindings.spray) || padSpray;
+    const spray = !input.menuMode && (keys.has(input.bindings.spray) || padSpray);
     if (spray !== sprayOn) { sprayOn = spray; emit('spray', { on: spray }); }
 
     // Only the last-used device drives the drone, so a stale or drifting pad cannot fight the keyboard.
@@ -131,6 +150,7 @@ export function createInput() {
     a.climb = clamp(src.climb, -1, 1);
     a.strafe = clamp(src.strafe, -1, 1);
     a.forward = clamp(src.forward, -1, 1);
+    if (input.menuMode) a.yaw = a.climb = a.strafe = a.forward = 0;
     input.manual = Math.abs(a.yaw) + Math.abs(a.climb) + Math.abs(a.strafe) + Math.abs(a.forward) > 0.05;
   }
 

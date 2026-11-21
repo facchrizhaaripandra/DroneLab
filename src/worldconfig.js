@@ -35,5 +35,62 @@ export function makeDefaultConfig(seed = 42) {
     if (Math.hypot(x, z) < 12 || nearRing(x, z, 6) || overlaps(buildings, x, z, w, d, 2) || overlaps(obstacles, x, z, w, d, 2)) continue;
     obstacles.push({ x, z, w, d, h, shade: 0 });
   }
-  return { seed, bounds: 100, buildings, obstacles, rings };
+  return {
+    seed, bounds: 100, buildings, obstacles, rings,
+    battery: { drain_idle: 0.05, drain_speed: 0.02, drain_kg: 0.05 },
+  };
+}
+
+// A point at least `margin` m away from every building (and not on the home pad).
+function freeSpot(r, buildings, minR, maxR, margin) {
+  for (let i = 0; i < 200; i++) {
+    const a = r() * Math.PI * 2, d = minR + r() * (maxR - minR);
+    const x = Math.sin(a) * d, z = -Math.cos(a) * d;
+    if (Math.abs(x) < 95 && Math.abs(z) < 95 && !overlaps(buildings, x, z, 0, 0, margin)) return { x, z };
+  }
+  return { x: 30, z: 30 };
+}
+function overlaps(list, x, z, w, d, m) {
+  return list.some((b) => Math.abs(b.x - x) < (b.w + w) / 2 + m && Math.abs(b.z - z) < (b.d + d) / 2 + m);
+}
+
+// World + mission objects for one mission id. Same (id, seed) always gives the same result.
+export function makeMissionConfig(id, seed = 42) {
+  const c = makeDefaultConfig(seed);
+  const r = rng(seed + 1000);
+  if (id === 'latihan_terbang' || id === 'freeroam') {
+    c.rings = [];
+  } else if (id === 'rintangan') {
+    // Goal ring far ahead (-Z) with poles in the lane between.
+    c.rings = [{ x: 0, y: 6, z: -80 }];
+    for (let i = 0, tries = 0; i < 7 && tries < 200; tries++) {
+      const x = (r() * 2 - 1) * 14, z = -20 - r() * 50;
+      if (overlaps(c.buildings, x, z, 1.5, 1.5, 3) || overlaps(c.obstacles, x, z, 1.5, 1.5, 3)) continue;
+      c.obstacles.push({ x, z, w: 1.5, d: 1.5, h: 4 + r() * 6, shade: 0 });
+      i++;
+    }
+  } else if (id === 'm4_delivery') {
+    c.rings = [];
+    const pickup = freeSpot(r, c.buildings, 25, 45, 5);
+    let drop = freeSpot(r, c.buildings, 55, 80, 5);
+    for (let i = 0; i < 50 && Math.hypot(drop.x - pickup.x, drop.z - pickup.z) < 40; i++) drop = freeSpot(r, c.buildings, 55, 80, 5);
+    const noFly = [];
+    for (let i = 0; i < 2; i++) {
+      const p = freeSpot(r, c.buildings, 15, 70, 8);
+      if (Math.hypot(p.x - pickup.x, p.z - pickup.z) < 15 || Math.hypot(p.x - drop.x, p.z - drop.z) < 15) continue;
+      noFly.push({ min: [p.x - 6, p.z - 6], max: [p.x + 6, p.z + 6] });
+    }
+    c.mission = { pickup: { ...pickup, r: 3 }, drop: { ...drop, r: 4 }, noFly, payload_kg: 1.5 };
+  }
+  return c;
+}
+
+// A config from the gateway may be partial. Fill the gaps so the world builder never crashes.
+export function normalizeConfig(c) {
+  return {
+    seed: 0, bounds: 100, buildings: [], obstacles: [], rings: [],
+    battery: { drain_idle: 0.05, drain_speed: 0.02, drain_kg: 0.05 },
+    ...c,
+    mission: c.mission ? { noFly: [], payload_kg: 0, ...c.mission } : undefined,
+  };
 }

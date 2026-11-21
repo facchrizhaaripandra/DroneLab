@@ -155,3 +155,37 @@ test('non-standard pad whose axes[3] rests at -1 (trigger): right stick is NOT s
   assert.equal(input.action.forward, 1);
   pads = [];
 });
+
+test('menuMode: keys and pad buttons become nav events, drone gets no action, no takeoff after closing the menu', () => {
+  const input = createInput();
+  const nav = [], seen = [];
+  events.on('nav', (e) => nav.push(e.dir));
+  events.on('input', (e) => seen.push(e.name));
+  input.menuMode = true;
+  fire('keydown', { code: 'ArrowDown' }); fire('keydown', { code: 'Enter' }); fire('keydown', { code: 'Escape' });
+  fire('keydown', { code: 'KeyW' });
+  input.poll(1 / 60);
+  assert.deepEqual(nav, ['down', 'ok', 'back', 'up']);
+  assert.deepEqual(input.action, { forward: 0, yaw: 0, climb: 0, strafe: 0 });
+  fire('keyup', { code: 'KeyW' });
+
+  pads = [makePad()];
+  input.poll(1 / 60);
+  const a = makePad(); a.buttons[0] = btn(true); a.buttons[13] = btn(true);
+  pads = [a];
+  input.poll(1 / 60);
+  assert.deepEqual(nav.slice(4), ['ok', 'down'].sort((x, y) => nav.slice(4).indexOf(x) - nav.slice(4).indexOf(y)));
+  // menu closes while A is still held: 1 s later there must be no takeoff_land
+  const before = seen.filter((n) => n === 'takeoff_land').length;
+  input.menuMode = false;
+  for (let i = 0; i < 60; i++) input.poll(1 / 60);
+  assert.equal(seen.filter((n) => n === 'takeoff_land').length, before);
+  // release, then a real hold works again
+  pads = [makePad()];
+  input.poll(1 / 60);
+  const held = makePad(); held.buttons[0] = btn(true);
+  pads = [held];
+  for (let i = 0; i < 45; i++) input.poll(1 / 60);
+  assert.equal(seen.filter((n) => n === 'takeoff_land').length, before + 1);
+  pads = [];
+});
