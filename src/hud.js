@@ -1,0 +1,123 @@
+// Fixed HUD (basis 1280x720). DOM is built once; update() only changes text and a few styles.
+// Positions are identical for keyboard and controller; only the hint bar changes.
+
+// Rect (stage px) where the drone camera is rendered under the transparent PIP panel.
+export const PIP_VIEW = { x: 954, y: 468, w: 254, h: 140 };
+
+const ACTION_LABELS = {
+  photo: 'Foto', record: 'Rekam', mark: 'Tandai', pickup_drop: 'Ambil / lepas', thermal: 'Mode panas',
+  camera_next: 'Kamera berikutnya', camera_prev: 'Kamera sebelumnya', command: 'Perintah teks',
+  panel_ai: 'Panel AI', add_object: 'Tambah objek', pause: 'Jeda', spray: 'Semprot',
+};
+export const actionLabel = (name) => ACTION_LABELS[name] || name;
+
+const MAP = { size: 148, scale: 0.67 }; // px per meter on the minimap (world is 200 m wide)
+
+function fmtTime(sec) {
+  const s = Math.floor(sec);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+export function createHud(root, config) {
+  root.innerHTML = `
+    <div id="telem" class="panel"><h2>Telemetri</h2>
+      <div class="row mono"><span>ALT</span><span id="t-alt"></span></div>
+      <div class="row mono"><span>SPD</span><span id="t-spd"></span></div>
+      <div class="row mono"><span>BAT</span><span id="t-bat"></span></div></div>
+    <div id="goal" class="panel"><h1>Latihan terbang</h1>
+      <div class="big" id="g-main"></div><div class="bar"><i id="g-bar"></i></div>
+      <div class="meta mono"><span id="g-time"></span><span id="g-hit"></span><span id="g-mode"></span></div></div>
+    <div id="status" class="panel"><h2>Status</h2>
+      <div class="row"><span>Gateway</span><span class="muted">Belum aktif</span></div>
+      <div class="row"><span>AI</span><span class="muted">Belum aktif</span></div>
+      <div class="row"><span>Kontrol</span><span id="s-ctl"></span></div>
+      <div class="row"><span>FPS</span><span class="mono" id="s-fps"></span></div></div>
+    <div id="minimap" class="panel"><canvas id="mm" width="296" height="296"></canvas></div>
+    <div id="pip" class="panel"><div class="hole"></div><div class="tag">Kamera drone</div></div>
+    <div id="hint" class="panel"></div>
+    <div id="toast" class="panel"></div>
+    <div id="hold"><b>Tahan</b></div>
+    <pre id="dbg" class="panel mono"></pre>`;
+  const $ = (id) => root.querySelector('#' + id);
+  const el = {
+    alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), main: $('g-main'), bar: $('g-bar'),
+    time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
+    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'),
+  };
+
+  // Minimap: static layer (buildings, obstacles, pad) drawn once at 2x; dynamic layer each update.
+  const mm = $('mm').getContext('2d');
+  const S = MAP.scale * 2, C = 148;
+  const stat = document.createElement('canvas');
+  stat.width = stat.height = 296;
+  const sc = stat.getContext('2d');
+  sc.fillStyle = '#e9e7e2'; sc.fillRect(0, 0, 296, 296);
+  sc.fillStyle = '#9aa0a8';
+  for (const b of config.buildings) sc.fillRect(C + (b.x - b.w / 2) * S, C + (b.z - b.d / 2) * S, b.w * S, b.d * S);
+  sc.fillStyle = '#d9822b';
+  for (const b of config.obstacles) sc.fillRect(C + (b.x - b.w / 2) * S, C + (b.z - b.d / 2) * S, b.w * S, b.d * S);
+  sc.fillStyle = '#fff'; sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 2;
+  sc.beginPath(); sc.arc(C, C, 6, 0, Math.PI * 2); sc.fill(); sc.stroke();
+  sc.fillStyle = '#5a5a56'; sc.font = '600 16px system-ui, sans-serif'; sc.fillText('Peta mini', 8, 20);
+
+  let toastUntil = 0;
+  let lastHold = -1;
+  let lastMode = '';
+
+  function setHints(h) {
+    const item = ([k, l]) => {
+      const ks = (Array.isArray(k) ? k : [k]).map((x) => `<span class="key">${x}</span>`).join('');
+      return `<span class="item">${ks}<span>${l}</span></span>`;
+    };
+    el.hint.innerHTML = h.left.map(item).join('') + '<span class="sp"></span>' + h.right.map(item).join('');
+  }
+
+  return {
+    setHints,
+    setDebug(text) {
+      el.dbg.style.display = text ? 'block' : 'none';
+      if (text) el.dbg.textContent = text;
+    },
+    toast(text, now) {
+      el.toast.textContent = text;
+      el.toast.style.opacity = '1';
+      toastUntil = now + 1800;
+    },
+    // cheap: runs every frame, writes the DOM only when the value changes
+    setHold(p) {
+      const q = Math.round(p * 20);
+      if (q === lastHold) return;
+      lastHold = q;
+      el.hold.style.display = q > 0 ? 'flex' : 'none';
+      el.hold.style.background = `conic-gradient(#1f1f1f ${p * 100}%, #ddd 0)`;
+    },
+    // runs ~10 times per second
+    update(s, now) {
+      const t = s.tel;
+      el.alt.textContent = `${t.alt.toFixed(1)} m`;
+      el.spd.textContent = `${t.speed.toFixed(1)} m/s`;
+      el.bat.textContent = `${s.battery}%`;
+      el.main.textContent = `Checkpoint ${s.checkpoints} dari ${s.totalCheckpoints}`;
+      el.bar.style.width = `${(s.checkpoints / s.totalCheckpoints) * 100}%`;
+      el.time.textContent = `Waktu ${fmtTime(s.flightTime)}`;
+      el.hit.textContent = `Tabrakan ${s.collisions}`;
+      if (t.mode !== lastMode) { lastMode = t.mode; el.mode.textContent = t.mode; }
+      el.ctl.textContent = s.deviceLabel;
+      el.fps.textContent = `${s.fps.toFixed(0)} (${s.ms.toFixed(1)} ms)`;
+      if (now > toastUntil) el.toast.style.opacity = '0';
+
+      mm.drawImage(stat, 0, 0);
+      for (let i = 0; i < s.rings.length; i++) {
+        const g = s.rings[i];
+        mm.fillStyle = g.passed ? '#2ea66b' : '#f5b700';
+        mm.beginPath(); mm.arc(C + g.x * S, C + g.z * S, 4, 0, Math.PI * 2); mm.fill();
+      }
+      mm.save();
+      mm.translate(C + t.pos[0] * S, C + t.pos[2] * S);
+      mm.rotate((t.yaw * Math.PI) / 180);
+      mm.fillStyle = '#1f1f1f';
+      mm.beginPath(); mm.moveTo(0, -9); mm.lineTo(6, 7); mm.lineTo(-6, 7); mm.closePath(); mm.fill();
+      mm.restore();
+    },
+  };
+}

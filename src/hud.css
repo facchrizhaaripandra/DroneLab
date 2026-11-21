@@ -1,0 +1,45 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+#stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: center center; overflow: hidden; background: #000; }
+#app { position: absolute; inset: 0; }
+#app canvas { display: block; }
+#hud { position: absolute; inset: 0; pointer-events: none; color: #1f1f1f; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* Fixed layout (basis 1280x720, 5% safe margin). Same positions for keyboard and controller. */
+.panel { position: absolute; box-sizing: border-box; background: rgba(255,255,255,0.92); border: 1px solid #1f1f1f; padding: 10px; }
+.mono { font-family: ui-monospace, Menlo, Consolas, "IBM Plex Mono", monospace; }
+.muted { color: #5a5a56; }
+.row { display: flex; justify-content: space-between; align-items: baseline; }
+
+#telem { left: 64px; top: 36px; width: 210px; height: 136px; }
+#telem .row { height: 28px; font-size: 20px; font-weight: 600; }
+#telem .row span:first-child { font-size: 15px; font-weight: 400; color: #5a5a56; }
+#telem h2, #status h2 { margin: 0 0 2px; font-size: 14px; font-weight: 500; color: #5a5a56; }
+
+#goal { left: 450px; top: 36px; width: 380px; min-height: 126px; }
+#goal h1 { margin: 0; font-size: 17px; font-weight: 700; }
+#goal .big { margin-top: 4px; font-size: 22px; font-weight: 500; }
+#goal .bar { height: 12px; border: 1px solid #1f1f1f; background: #fff; margin-top: 6px; }
+#goal .bar i { display: block; height: 100%; width: 0; background: #1f1f1f; }
+#goal .meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: 15px; }
+
+#status { left: 966px; top: 36px; width: 250px; height: 112px; }
+#status .row { height: 22px; font-size: 16px; font-weight: 600; }
+#status .row span:first-child { font-weight: 400; color: #5a5a56; }
+
+#minimap { left: 64px; top: 466px; width: 150px; height: 150px; padding: 0; }
+#minimap canvas { display: block; width: 148px; height: 148px; }
+
+/* The PIP is a transparent window: the second 3D pass is drawn under it. The shadow frames the hole. */
+#pip { left: 946px; top: 460px; width: 270px; height: 156px; padding: 0; background: transparent; border-color: #1f1f1f; }
+#pip .hole { position: absolute; left: 7px; top: 7px; width: 254px; height: 140px; box-shadow: 0 0 0 8px rgba(255,255,255,0.92); outline: 1px solid #bdbbb5; }
+#pip .tag { position: absolute; left: 12px; top: 12px; padding: 1px 6px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.92); }
+
+#hint { left: 64px; top: 628px; width: 1152px; height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+#hint .item { display: inline-flex; align-items: center; gap: 4px; font-size: 16px; }
+#hint .sp { flex: 1; }
+.key { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 30px; padding: 0 8px; box-sizing: border-box; background: #1f1f1f; color: #fff; border-radius: 6px; font: 600 14px ui-monospace, Menlo, Consolas, monospace; margin-right: 2px; }
+
+#toast { left: 440px; top: 570px; width: 400px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+#hold { position: absolute; left: 604px; top: 500px; width: 72px; height: 72px; border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: conic-gradient(#1f1f1f 0%, #ddd 0); }
+#hold b { width: 54px; height: 54px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
+#dbg { left: 64px; top: 190px; margin: 0; width: 360px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; display: none; }
