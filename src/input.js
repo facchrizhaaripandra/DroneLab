@@ -61,7 +61,12 @@ export function createInput() {
   let holdArmed = true;
   const emit = (name, extra) => events.emit('input', { name, ...extra });
 
+  // Typing in the command editor must never move the drone.
+  const typing = (e) => !!e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
+  input.releaseAll = () => keys.clear();
+
   window.addEventListener('keydown', (e) => {
+    if (typing(e)) return;
     if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     keys.add(e.code);

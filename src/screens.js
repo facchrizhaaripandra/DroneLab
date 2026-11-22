@@ -10,7 +10,7 @@ export function mainMenuSpec(cb) {
       { label: 'Mulai', note: 'Latihan terbang', action: cb.quickStart },
       { label: 'Misi', note: 'Latihan dan misi utama', action: cb.missions },
       { label: 'Freeroam', note: 'Terbang bebas', action: cb.freeroam },
-      { label: 'Editor perintah', note: 'Fase 4', enabled: false, action() {} },
+      { label: 'Editor perintah', note: 'Skrip dan bahasa natural', action: cb.editor },
       { label: 'Pengaturan', note: 'Fase 5', enabled: false, action() {} },
       { label: 'Bantuan', action: cb.help },
     ],
@@ -65,7 +65,7 @@ export function pauseSpec(cb) {
 export function helpSpec(cb) {
   const body = `<table class="help">
     <tr><td>Keyboard</td><td>W A S D gerak · Q E putar · Spasi / C naik / turun · X tahan takeoff/land · H return home</td></tr>
-    <tr><td></td><td>F foto · P ambil/lepas paket · B tambah objek (freeroam) · V kamera · Tab panel · Esc jeda</td></tr>
+    <tr><td></td><td>F foto · P ambil/lepas paket · B tambah objek (freeroam) · V kamera · Tab panel · Enter editor perintah · Esc jeda</td></tr>
     <tr><td>Controller</td><td>Stick kiri naik/putar · stick kanan gerak · A tahan takeoff/land · B home · X foto · LB/RB kamera · Start jeda</td></tr>
     <tr><td></td><td>D-pad kanan ambil/lepas paket</td></tr>
     <tr><td>Debug</td><td>Tombol &#96; (backtick) membuka panel data controller</td></tr></table>`;

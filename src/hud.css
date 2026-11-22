@@ -71,3 +71,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
 #menu td.num { white-space: nowrap; font-weight: 600; }
 #menu .muted { color: #5a5a56; font-size: 14px; }
 #menu .help td:first-child { font-weight: 600; white-space: nowrap; }
+
+/* Command editor: left side, between telemetry and the minimap. Takes pointer and keyboard input. */
+#editor { left: 64px; top: 184px; width: 560px; height: 272px; padding: 8px; pointer-events: auto; font-size: 15px; display: none; }
+#editor .tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+#editor .tabs .sp { flex: 1; }
+#editor button { font: 600 14px system-ui, sans-serif; padding: 4px 12px; min-height: 30px; background: #fff; color: #1f1f1f; border: 1px solid #1f1f1f; cursor: pointer; }
+#editor .tabs button.on, #editor button:hover { background: #1f1f1f; color: #fff; }
+#editor textarea, #editor #ed-view { display: block; box-sizing: border-box; width: 100%; height: 96px; margin: 0; padding: 6px; font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; border: 1px solid #1f1f1f; background: #fff; color: #1f1f1f; resize: none; overflow: auto; white-space: pre-wrap; }
+#editor #ed-view { display: none; background: #f4f3ef; }
+#editor mark { background: #f5b700; color: #1f1f1f; }
+#editor .nlrow { display: flex; gap: 6px; }
+#editor #ed-nl { flex: 1; font: 15px system-ui, sans-serif; padding: 4px 8px; border: 1px solid #1f1f1f; }
+#editor .pane p { margin: 6px 0 0; font-size: 13px; }
+#editor .btns { display: flex; gap: 6px; margin: 6px 0; }
+#editor #ed-log { box-sizing: border-box; margin: 0; height: 74px; overflow: auto; padding: 4px 6px; font: 12.5px/1.35 ui-monospace, Menlo, Consolas, monospace; border: 1px solid #bdbbb5; background: #f4f3ef; }
+#ed-log .ok { color: #1c7a4a; } #ed-log .warn { color: #8a6100; } #ed-log .error { color: #b3261e; font-weight: 600; }

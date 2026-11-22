@@ -13,6 +13,10 @@ import { Autopilot } from './autopilot.js';
 import { buildHints } from './bindings.js';
 import { createHud, PIP_VIEW, actionLabel } from './hud.js';
 import { createMenu } from './ui.js';
+import { createEditor } from './editor.js';
+import { Commander } from './commander.js';
+import { parseNatural } from './nlparse.js';
+import { canSee } from './vision.js';
 import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec } from './screens.js';
 import { MISSIONS, getMission, MissionRun } from './missions.js';
 import { Battery } from './battery.js';
@@ -52,6 +56,58 @@ const hud = createHud(document.getElementById('hud'), config);
 const menu = createMenu(stage);
 const gateway = createGateway(GATEWAY_URL);
 
+// Script runner: it drives the drone through applyAction() like every other input source.
+const commander = new Commander({
+  autopilot,
+  detect: (label) => canSee(label, sim.pos, sim.yaw, config, session ? session.extraBoxes : []),
+  battery: () => (session ? session.battery.level : 100),
+  setGimbal: (deg) => drone.setGimbalPitch(deg),
+  act(name) {
+    if (name === 'pickup' || name === 'drop') {
+      const run = session && session.run;
+      if (!run || run.def.id !== 'm4_delivery') return `${name}: tidak ada paket di mode ini`;
+      if (name === 'pickup' && run.carrying) return 'pickup: paket sudah dibawa';
+      if (name === 'drop' && !run.carrying) return 'drop: tidak sedang membawa paket';
+      return run.pickupDrop(sim);
+    }
+    toast(`${actionLabel(name)} (belum terhubung)`);
+    return `${name}: belum terhubung ke sistem misi`;
+  },
+});
+const editor = createEditor(stage, {
+  onOpen: () => input.releaseAll(),
+  onClose: () => {},
+  onRun: (src) => runScript(src, false),
+  onStep: (src) => (commander.state === 'paused' ? commander.resume() : runScript(src, true)),
+  onStop: () => commander.stop('Dihentikan pemain'),
+  onNatural: translate,
+});
+commander.onLog = (e) => editor.log(e);
+
+function runScript(src, stepMode) {
+  const r = commander.load(src, config.bounds);
+  if (!r.ok) {
+    for (const er of r.errors) editor.logText(`Baris ${er.line}: ${er.message}`, 'error');
+    return;
+  }
+  autopilot.cancel();
+  commander.start(stepMode);
+  if (stepMode) commander.resume();
+}
+
+// Natural language: local parser first, then the LLM through the gateway. Never throws.
+async function translate(text) {
+  const local = parseNatural(text);
+  if (local) { editor.logText(`Terjemahan lokal: ${local.script.split('\n').length} perintah`, 'ok'); return local; }
+  editor.logText('Menghubungi server AI...');
+  const ctx = { pose: { pos: sim.pos.slice(), yaw: sim.yaw }, battery: Math.round(session ? session.battery.level : 100), mission_id: session && session.def ? session.def.id : 'freeroam' };
+  const r = await gateway.command(text, ctx);
+  refreshGatewayLabel();
+  if (!r.ok) { editor.logText(`${r.message}. Hanya perintah umum (naik, mendarat, putar 360, ...) yang bisa dipakai tanpa AI.`, 'warn'); return null; }
+  editor.logText(`Terjemahan ${r.source === 'llm' ? 'LLM' : 'lokal'}${(r.warnings || []).length ? `: ${r.warnings.join('; ')}` : ''}`, 'ok');
+  return r;
+}
+
 // ---- app state ----
 let state = 'menu';           // menu | play | paused | result
 let session = null;           // { kind: 'mission' | 'freeroam', def, run, runId, battery, extra }
@@ -65,8 +121,12 @@ let flightTime = 0;
 const toast = (text) => hud.toast(text, performance.now());
 
 function setMenuMode(on) { input.menuMode = on; }
-function refreshGatewayLabel() { hud.setGateway(gateway.mode === 'online' ? 'Tersambung' : 'Mode lokal (stub)'); }
+function refreshGatewayLabel() {
+  hud.setGateway(gateway.mode === 'online' ? 'Tersambung' : 'Mode lokal (stub)');
+  hud.setAi(gateway.ai ? 'Server AI terhubung' : 'AI offline');
+}
 gateway.check().then(refreshGatewayLabel);
+setInterval(() => gateway.check().then(refreshGatewayLabel), 10000); // the gateway or the AI may come and go
 
 // Replace the world, the drone state and the HUD map in one place (used by every mission start).
 function loadWorld(cfg) {
@@ -74,6 +134,7 @@ function loadWorld(cfg) {
   config = normalizeConfig(cfg);
   world = buildWorld(scene, config);
   sim = new Flight();
+  commander.stop('Dunia diganti');
   autopilot.cancel();
   chase.ready = false;
   flightTime = 0;
@@ -84,11 +145,13 @@ function loadWorld(cfg) {
 // ---- screens ----
 const cbMain = () => showMain();
 function showMain() {
+  editor.close(); commander.stop('Kembali ke menu');
   state = 'menu'; setMenuMode(true); hud.setVisible(false);
   menu.open(mainMenuSpec({
     quickStart: () => startMission(getMission('latihan_terbang')),
     missions: showMissions,
     freeroam: startFreeroam,
+    editor: () => { startFreeroam(); editor.open(); },
     help: () => menu.open(helpSpec({ back: showMain })),
   }));
 }
@@ -118,17 +181,18 @@ async function startMission(def) {
   }
   loadWorld(cfg);
   const run = new MissionRun(def.id, config, (type, e) => { if (runId) gateway.event(runId, e); });
-  session = { kind: 'mission', def, run, runId, battery: new Battery(config.battery) };
+  session = { kind: 'mission', def, run, runId, battery: new Battery(config.battery), extraBoxes: [] };
   enterPlay(def.id === 'm4_delivery' ? 'delivery' : 'latihan', def.title);
 }
 
 function startFreeroam() {
   loadWorld(makeMissionConfig('freeroam', 42));
-  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0 };
+  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0, extraBoxes: [] };
   enterPlay('freeroam', 'Freeroam');
 }
 
 function pauseGame() {
+  editor.close();
   state = 'paused'; setMenuMode(true);
   menu.open(pauseSpec({
     resume: () => { menu.close(); setMenuMode(false); state = 'play'; last = performance.now(); },
@@ -138,6 +202,7 @@ function pauseGame() {
 }
 
 async function endMission() {
+  editor.close(); commander.stop('Misi berakhir');
   state = 'result'; setMenuMode(true);
   const run = session.run, level = Math.round(session.battery.level);
   const fin = { t_ms: run.tMs, battery: level, reason: run.reason };
@@ -174,11 +239,13 @@ events.on('input', (e) => {
     if (session.kind !== 'freeroam') { toast('Tambah objek hanya di freeroam'); return; }
     const yaw = (sim.yaw * Math.PI) / 180;
     const b = world.addBox(sim.pos[0] + Math.sin(yaw) * 8, sim.pos[2] - Math.cos(yaw) * 8);
-    if (b) { hud.addMapBox(b); session.extra++; toast('Objek ditambah'); } else toast('Batas objek tercapai');
+    if (b) { hud.addMapBox(b); session.extra++; session.extraBoxes.push(b); toast('Objek ditambah'); } else toast('Batas objek tercapai');
   } else if (e.name === 'panel_ai') {
     if (session.kind !== 'freeroam') { toast('Panel hanya di freeroam'); return; }
     panelOpen = !panelOpen;
     hud.setPanel(panelOpen, assist);
+  } else if (e.name === 'command') {
+    if (editor.isOpen) editor.close(); else editor.open();
   } else if (e.name === 'spray') {
     toast(`${actionLabel('spray')} ${e.on ? 'ON' : 'OFF'} (belum terhubung)`);
   } else {
@@ -186,7 +253,7 @@ events.on('input', (e) => {
   }
 });
 window.addEventListener('keydown', (e) => { // panel toggles 1-4 (keyboard only for now)
-  if (state !== 'play' || !panelOpen || !/^Digit[1-4]$/.test(e.code)) return;
+  if (state !== 'play' || !panelOpen || !/^Digit[1-4]$/.test(e.code) || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
   const a = assist[Number(e.code.slice(5)) - 1];
   a.on = !a.on;
   hud.setPanel(true, assist);
@@ -209,13 +276,16 @@ function frame(now) {
 
   input.poll(dt);
   if (autopilot.active && input.manual) autopilot.cancel(); // the pilot always wins
+  if (commander.running && input.manual) commander.stop('Dibatalkan: pilot menggerakkan kontrol');
 
   // Fixed-step physics, only while playing. Max 5 steps per frame to avoid a spiral of death.
   if (state === 'play') {
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 5) {
-      if (autopilot.active) autopilot.step(sim);
+      if (commander.state === 'running') commander.step(STEP, sim);
+      else if (commander.state === 'paused') { /* step mode: hold still until the next Langkah */ }
+      else if (autopilot.active) autopilot.step(sim);
       else sim.applyAction(input.action); // single entry point for every input source
       sim.step(STEP, world.colliders);
       world.update(sim.pos);
@@ -262,6 +332,7 @@ function frame(now) {
   if (hudTime >= 0.1) {
     hudTime = 0;
     hud.setDebug(input.debugOn ? input.debugText() : '');
+    editor.sync(commander.state, commander.active);
     if (state === 'play' || state === 'paused') updateHud(now);
   }
 }

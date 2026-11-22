@@ -29,7 +29,7 @@ export function createHud(root, config) {
       <div class="meta mono"><span id="g-time"></span><span id="g-hit"></span><span id="g-mode"></span></div></div>
     <div id="status" class="panel"><h2>Status</h2>
       <div class="row"><span>Gateway</span><span id="s-gw" class="muted">...</span></div>
-      <div class="row"><span>AI</span><span class="muted">Belum aktif</span></div>
+      <div class="row"><span>AI</span><span id="s-ai" class="muted">...</span></div>
       <div class="row"><span>Kontrol</span><span id="s-ctl"></span></div>
       <div class="row"><span>FPS</span><span class="mono" id="s-fps"></span></div></div>
     <div id="minimap" class="panel"><canvas id="mm" width="296" height="296"></canvas></div>
@@ -43,7 +43,7 @@ export function createHud(root, config) {
   const el = {
     alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
-    title: $('g-title'), gw: $('s-gw'), side: $('side'), sideRows: $('side-rows'),
+    title: $('g-title'), gw: $('s-gw'), ai: $('s-ai'), side: $('side'), sideRows: $('side-rows'),
     hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'),
   };
 
@@ -96,6 +96,7 @@ export function createHud(root, config) {
     setVisible(on) { root.style.visibility = on ? 'visible' : 'hidden'; },
     setTitle(t) { el.title.textContent = t; },
     setGateway(text) { el.gw.textContent = text; },
+    setAi(text) { el.ai.textContent = text; },
     // Side panel (Tab). items: [{label, on}] -> rows "1 Label  ON/OFF"
     setPanel(open, items) {
       el.side.style.display = open ? 'block' : 'none';

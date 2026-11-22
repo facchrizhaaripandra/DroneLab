@@ -3,7 +3,9 @@
 import { MISSIONS, getMission, scoreFromEvents } from './missions.js';
 import { makeMissionConfig } from './worldconfig.js';
 
-const TIMEOUT_MS = 1500;
+const TIMEOUT_MS = 1500;      // gateway calls
+const AI_TIMEOUT_MS = 2000;   // detect, decide (SHARED section 5)
+const LLM_TIMEOUT_MS = 10000; // command may call the LLM
 
 // Offline stand-in. Same shape as the real API: it scores from the event log, never from client numbers.
 export function createStubGateway() {
@@ -28,9 +30,9 @@ export function createStubGateway() {
   };
 }
 
-const fetchJson = async (f, url, opts) => {
+const fetchJson = async (f, url, opts, timeout = TIMEOUT_MS) => {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), timeout);
   try {
     const res = await f(url, { ...opts, signal: ctl.signal, headers: { 'Content-Type': 'application/json' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -42,6 +44,7 @@ const fetchJson = async (f, url, opts) => {
 export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocketImpl = globalThis.WebSocket } = {}) {
   const stub = createStubGateway();
   let online = false;
+  let aiUp = false;   // the gateway reports whether the AI service behind it is alive
   let ws = null;
   let current = null; // 'real' | 'stub' for the run in progress
 
@@ -52,9 +55,17 @@ export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocket
       try {
         const h = await fetchJson(fetchImpl, `${baseUrl}/health`);
         online = h.status === 'ok';
-      } catch { online = false; }
+        aiUp = online && h.ai === 'ok';
+      } catch { online = false; aiUp = false; }
       return api.mode;
     },
+    get ai() { return aiUp; },
+    // AI calls never throw: { ok: true, ...data } or { ok: false, reason: 'offline' | 'ai_down' | 'error', message }.
+    async command(text, context = {}) {
+      return aiCall('/api/v1/command', { text, context }, LLM_TIMEOUT_MS);
+    },
+    async detect(image, mode = 'normal') { return aiCall('/api/v1/detect', { image, mode }, AI_TIMEOUT_MS); },
+    async decide(obs) { return aiCall('/api/v1/decide', { obs }, AI_TIMEOUT_MS); },
     async missions() {
       if (online) { try { return await fetchJson(fetchImpl, `${baseUrl}/api/v1/missions`); } catch { online = false; } }
       return stub.missions();
@@ -91,6 +102,17 @@ export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocket
     },
     get official() { return current === 'real'; },
   };
+
+  async function aiCall(path, body, timeout) {
+    if (!online) return { ok: false, reason: 'offline', message: 'Gateway tidak terjangkau' };
+    if (!aiUp) return { ok: false, reason: 'ai_down', message: 'Server AI offline' };
+    try {
+      return { ok: true, ...(await fetchJson(fetchImpl, baseUrl + path, { method: 'POST', body: JSON.stringify(body) }, timeout)) };
+    } catch (e) {
+      aiUp = false; // show "AI offline" until the next health check proves otherwise
+      return { ok: false, reason: 'error', message: String(e.message || e) };
+    }
+  }
 
   function openSocket(run_id) {
     try {

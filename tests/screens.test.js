@@ -14,10 +14,10 @@ test('moveFocus skips disabled items and wraps around', () => {
   assert.equal(moveFocus([{ enabled: false }], 0, 1), 0);
 });
 
-test('main menu has the six spec entries; editor and settings are disabled until their phase', () => {
-  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, help: noop });
+test('main menu has the six spec entries; settings stay disabled until Phase 5', () => {
+  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, editor: noop, help: noop });
   assert.deepEqual(s.items.map((i) => i.label), ['Mulai', 'Misi', 'Freeroam', 'Editor perintah', 'Pengaturan', 'Bantuan']);
-  assert.equal(s.items[3].enabled, false);
+  assert.notEqual(s.items[3].enabled, false);
   assert.equal(s.items[4].enabled, false);
 });
 
