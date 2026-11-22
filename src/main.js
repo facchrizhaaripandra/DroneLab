@@ -17,7 +17,9 @@ import { createEditor } from './editor.js';
 import { Commander } from './commander.js';
 import { parseNatural } from './nlparse.js';
 import { canSee } from './vision.js';
-import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec } from './screens.js';
+import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec, settingsMenuSpec, keyboardSpec, controllerSpec, stickTestSpec, graphicsSpec } from './screens.js';
+import { loadSettings, saveSettings, sanitize, remapKey, applyPreset, markCustom } from './settings.js';
+import { DEFAULT_KEYS } from './bindings.js';
 import { MISSIONS, getMission, MissionRun } from './missions.js';
 import { Battery } from './battery.js';
 import { createGateway } from './gateway.js';
@@ -25,6 +27,10 @@ import { events } from './events.js';
 
 const W = 1280, H = 720; // the stage is always 16:9; the window letterboxes it
 const GATEWAY_URL = import.meta.env?.VITE_GATEWAY_URL || 'http://localhost:8000';
+
+// localStorage can throw (blocked cookies, private mode): fall back to a store that remembers nothing.
+const store = (() => { try { return window.localStorage; } catch { return { getItem: () => null, setItem() {} }; } })();
+let settings = loadSettings(store);
 
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -38,7 +44,7 @@ function layout() {
   const s = Math.min(window.innerWidth / W, window.innerHeight / H);
   stage.style.transform = `translate(-50%, -50%) scale(${s})`;
   // Render at the real on-screen resolution (capped), not at the CSS 1280x720 size.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * s);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * s * settings.graphics.renderScale);
   renderer.setSize(W, H);
 }
 window.addEventListener('resize', layout);
@@ -55,6 +61,21 @@ const autopilot = new Autopilot();
 const hud = createHud(document.getElementById('hud'), config);
 const menu = createMenu(stage);
 const gateway = createGateway(GATEWAY_URL);
+
+// ---- settings: save, then apply to input, graphics and hints ----
+function applyGraphics() {
+  world.setShadows(settings.graphics.shadows);
+  hud.setScale(settings.graphics.hudScale);
+  layout();
+}
+function commit() {
+  saveSettings(store, settings);
+  input.applySettings(settings);
+  applyGraphics();
+  hintDevice = ''; // rebuild the hint bar (key names may have changed)
+}
+input.applySettings(settings);
+applyGraphics();
 
 // Script runner: it drives the drone through applyAction() like every other input source.
 const commander = new Commander({
@@ -116,6 +137,7 @@ const assist = [              // freeroam side panel toggles (not connected to t
   { label: 'Deteksi objek', on: false }, { label: 'Jalur A*', on: false },
   { label: 'Auto-hindari', on: false }, { label: 'Auto-pilot', on: false },
 ];
+let seenHits = 0;             // collisions already answered with a rumble
 let hintContext = 'latihan', hintDevice = '', hintType = '';
 let flightTime = 0;
 const toast = (text) => hud.toast(text, performance.now());
@@ -133,6 +155,8 @@ function loadWorld(cfg) {
   world.dispose();
   config = normalizeConfig(cfg);
   world = buildWorld(scene, config);
+  world.setShadows(settings.graphics.shadows);
+  seenHits = 0;
   sim = new Flight();
   commander.stop('Dunia diganti');
   autopilot.cancel();
@@ -152,8 +176,82 @@ function showMain() {
     missions: showMissions,
     freeroam: startFreeroam,
     editor: () => { startFreeroam(); editor.open(); },
+    settings: showSettings,
     help: () => menu.open(helpSpec({ back: showMain })),
   }));
+}
+
+// ---- settings screens ----
+function setPath(path, value) { // 'keyboard.ramp' -> settings.keyboard.ramp = value (then sanitized and saved)
+  const next = JSON.parse(JSON.stringify(settings));
+  const [a, b] = path.split('.');
+  next[a][b] = value;
+  settings = sanitize(next);
+  commit();
+}
+const settingsBack = () => showSettings();
+function showSettings() {
+  menu.open(settingsMenuSpec({ keyboard: showKeyboardSettings, controller: showControllerSettings, graphics: showGraphicsSettings, back: showMain }));
+}
+let capturingAction = null;
+function showKeyboardSettings() {
+  const cb = {
+    set: setPath,
+    remap(action) {
+      capturingAction = action;
+      menu.refresh();
+      input.capture = (code) => {
+        capturingAction = null;
+        if (code && code !== 'Backquote') { // Backquote stays reserved for the debug panel
+          const next = JSON.parse(JSON.stringify(settings));
+          next.keyboard.keys = remapKey(next.keyboard.keys, action, code);
+          settings = sanitize(next);
+          commit();
+        }
+        menu.refresh();
+      };
+    },
+    resetKeys: () => { const next = JSON.parse(JSON.stringify(settings)); next.keyboard.keys = { ...DEFAULT_KEYS }; settings = sanitize(next); commit(); menu.refresh(); },
+    back: settingsBack,
+  };
+  menu.open(keyboardSpec(() => settings, () => capturingAction, cb));
+}
+function showControllerSettings() {
+  const cb = {
+    set: setPath, back: settingsBack,
+    test: () => menu.open(stickTestSpec({ back: showControllerSettings, rumble: () => input.rumble(0.8, 400, true), tick: drawSticks })),
+  };
+  menu.open(controllerSpec(() => settings, cb));
+}
+function showGraphicsSettings() {
+  const cb = {
+    set: setPath, back: settingsBack,
+    preset(p) { settings = sanitize({ ...settings, graphics: applyPreset(settings.graphics, p) }); commit(); },
+    setCustom(path, v) { // a manual change of resolution or shadows leaves the preset
+      const next = JSON.parse(JSON.stringify(settings));
+      next.graphics = markCustom(next.graphics);
+      next.graphics[path.split('.')[1]] = v;
+      settings = sanitize(next);
+      commit();
+    },
+  };
+  menu.open(graphicsSpec(() => settings, cb));
+}
+
+// Stick test: two circles with the raw stick positions and the deadzone ring (redrawn at ~10 Hz).
+function drawSticks(menuEl) {
+  const cv = menuEl.querySelector('#stk');
+  if (!cv) return;
+  const g = cv.getContext('2d'), R = 60, dz = settings.controller.deadzone;
+  g.clearRect(0, 0, cv.width, cv.height);
+  const s = input.sticks || [0, 0, 0, 0];
+  [[135, s[0], s[1], 'Kiri'], [405, s[2], s[3], 'Kanan']].forEach(([cx, x, y, label]) => {
+    g.strokeStyle = '#1f1f1f'; g.lineWidth = 2; g.beginPath(); g.arc(cx, 75, R, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = '#9a9a94'; g.lineWidth = 1; g.beginPath(); g.arc(cx, 75, R * dz, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = Math.hypot(x, y) > dz ? '#1c7a4a' : '#d64545';
+    g.beginPath(); g.arc(cx + x * R, 75 + y * R, 7, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#5a5a56'; g.font = '14px system-ui, sans-serif'; g.fillText(label, cx - 16, 12);
+  });
 }
 
 async function showMissions() {
@@ -263,6 +361,7 @@ showMain();
 
 // ---- timing and FPS (no allocations inside the loop, except the 10 Hz HUD/telemetry tick) ----
 let last = performance.now();
+let lastDraw = last;
 let acc = 0;
 let frames = 0, fpsTime = 0, fps = 0, msAvg = 16.7, hudTime = 0;
 const tmpView = { x: PIP_VIEW.x, y: H - PIP_VIEW.y - PIP_VIEW.h, w: PIP_VIEW.w, h: PIP_VIEW.h };
@@ -273,6 +372,8 @@ function frame(now) {
   last = now;
   const raw = dt;
   if (dt > 0.1) dt = 0.1; // tab was hidden or a long stall: do not simulate a huge step
+  fpsTime += raw;
+  hudTime += raw;
 
   input.poll(dt);
   if (autopilot.active && input.manual) autopilot.cancel(); // the pilot always wins
@@ -289,6 +390,7 @@ function frame(now) {
       else sim.applyAction(input.action); // single entry point for every input source
       sim.step(STEP, world.colliders);
       world.update(sim.pos);
+      if (sim.collisionCount > seenHits) { seenHits = sim.collisionCount; input.rumble(0.7, 150); }
       const airborne = sim.mode !== 'landed';
       const run = session.run;
       if (session.kind === 'mission') {
@@ -302,10 +404,15 @@ function frame(now) {
     if (n === 5) acc = 0;
   }
 
+  // Target FPS 30: physics and input still run every frame, but only every other frame is drawn.
+  if (settings.graphics.targetFps < 60 && now - lastDraw < 1000 / settings.graphics.targetFps - 4) return;
+  const drawDt = Math.min((now - lastDraw) / 1000, 0.1);
+  lastDraw = now;
+
   // Render with interpolation between the last two physics states.
   const alpha = acc / STEP;
-  drone.update(sim, alpha, dt);
-  chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, dt);
+  drone.update(sim, alpha, drawDt);
+  chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, drawDt);
   world.followLight(drone.group.position.x, drone.group.position.z);
   renderer.render(scene, camera);
 
@@ -319,18 +426,17 @@ function frame(now) {
 
   // FPS over 0.5 s windows; HUD text refreshes 10 times per second.
   frames++;
-  fpsTime += raw;
-  msAvg += (raw * 1000 - msAvg) * 0.05;
+  msAvg += (drawDt * 1000 - msAvg) * 0.05;
   if (fpsTime >= 0.5) { fps = frames / fpsTime; frames = 0; fpsTime = 0; }
 
   hud.setHold(input.holdProgress);
   if (input.device !== hintDevice || input.padType !== hintType) { // rebuild hints only on change
     hintDevice = input.device; hintType = input.padType;
-    hud.setHints(buildHints(hintContext, hintDevice, hintType));
+    hud.setHints(buildHints(hintContext, hintDevice, hintType, input.bindings));
   }
-  hudTime += raw;
   if (hudTime >= 0.1) {
     hudTime = 0;
+    if (menu.isOpen) menu.tick();
     hud.setDebug(input.debugOn ? input.debugText() : '');
     editor.sync(commander.state, commander.active);
     if (state === 'play' || state === 'paused') updateHud(now);

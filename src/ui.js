@@ -25,8 +25,10 @@ export function createMenu(root) {
 
   const menu = {
     get isOpen() { return spec !== null; },
-    // spec: { title, subtitle, body (html, trusted), items: [{label, note, enabled, action}], onBack, foot, dim }
-    open(s) {
+    // spec: { title, subtitle, body (html, trusted), items: [{label, note, enabled, action | step(dir)}], onBack, foot, dim, rebuild, tick }
+    // Items with step(dir) change a value with Left/Right (and OK = +1); the screen is rebuilt via spec.rebuild().
+    open(s, keepIndex = false) {
+      const prev = index;
       spec = s;
       q('h1').textContent = s.title;
       q('.sub').textContent = s.subtitle || '';
@@ -44,22 +46,35 @@ export function createMenu(root) {
         list.appendChild(b);
         return b;
       });
-      index = Math.max(0, s.items.findIndex((it) => it.enabled !== false));
+      index = keepIndex ? Math.min(prev, s.items.length - 1) : Math.max(0, s.items.findIndex((it) => it.enabled !== false));
       el.style.display = 'flex';
       paint();
     },
     close() { spec = null; el.style.display = 'none'; },
     activate() {
       const it = spec && spec.items[index];
-      if (it && it.enabled !== false) it.action();
+      if (!it || it.enabled === false) return;
+      if (it.step) menu.step(1); else it.action();
     },
+    step(dir) {
+      const it = spec && spec.items[index];
+      if (!it || !it.step || it.enabled === false) return;
+      it.step(dir);
+      if (spec && spec.rebuild) menu.open(spec.rebuild(), true);
+    },
+    refresh() { if (spec && spec.rebuild) menu.open(spec.rebuild(), true); },
+    tick() { if (spec && spec.tick) spec.tick(el); }, // ~10 Hz, for live screens (stick test)
   };
 
-  function paint() { buttons.forEach((b, i) => b.classList.toggle('sel', i === index)); }
+  function paint() {
+    buttons.forEach((b, i) => b.classList.toggle('sel', i === index));
+    if (buttons[index] && buttons[index].scrollIntoView) buttons[index].scrollIntoView({ block: 'nearest' });
+  }
 
   events.on('nav', ({ dir }) => {
     if (!spec) return;
     if (dir === 'up' || dir === 'down') { index = moveFocus(spec.items, index, dir === 'up' ? -1 : 1); paint(); }
+    else if (dir === 'left' || dir === 'right') menu.step(dir === 'left' ? -1 : 1);
     else if (dir === 'ok') menu.activate();
     else if (dir === 'back' && spec.onBack) spec.onBack();
   });

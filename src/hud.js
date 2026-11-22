@@ -93,6 +93,8 @@ export function createHud(root, config) {
     // New world (mission start): redraw the static minimap layer.
     setWorld: drawStatic,
     addMapBox(b) { sc.fillStyle = '#d9822b'; rect(b); },
+    // HUD size (graphics setting): shrinks the whole layer toward the center, so it never leaves the screen.
+    setScale(s) { root.style.transform = `scale(${s})`; root.style.transformOrigin = 'center'; },
     setVisible(on) { root.style.visibility = on ? 'visible' : 'hidden'; },
     setTitle(t) { el.title.textContent = t; },
     setGateway(text) { el.gw.textContent = text; },

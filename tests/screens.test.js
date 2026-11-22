@@ -14,11 +14,10 @@ test('moveFocus skips disabled items and wraps around', () => {
   assert.equal(moveFocus([{ enabled: false }], 0, 1), 0);
 });
 
-test('main menu has the six spec entries; settings stay disabled until Phase 5', () => {
-  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, editor: noop, help: noop });
+test('main menu has the six spec entries; all entries are enabled', () => {
+  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, editor: noop, settings: noop, help: noop });
   assert.deepEqual(s.items.map((i) => i.label), ['Mulai', 'Misi', 'Freeroam', 'Editor perintah', 'Pengaturan', 'Bantuan']);
-  assert.notEqual(s.items[3].enabled, false);
-  assert.equal(s.items[4].enabled, false);
+  assert.ok(s.items.every((i) => i.enabled !== false));
 });
 
 test('mission list: 3 practice + 1 main mission playable, rest marked unavailable', () => {

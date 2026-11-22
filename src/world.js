@@ -160,6 +160,8 @@ export function buildWorld(scene, config) {
         }
       }
     },
+    // Shadows on/off (graphics setting). Only the sun casts shadows, so this is one flag.
+    setShadows(on) { sun.castShadow = on; },
     // Keeps the limited shadow area centered on the drone.
     followLight(px, pz) {
       sun.position.set(px + 40, 70, pz + 25);

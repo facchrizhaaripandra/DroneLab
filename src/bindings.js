@@ -1,4 +1,4 @@
-// Default bindings and on-screen hint data. Phase 5 will let the user change these.
+// Default bindings and on-screen hint data. The user can change the keys in Settings (settings.js).
 
 // action -> KeyboardEvent.code
 export const DEFAULT_KEYS = {
@@ -36,26 +36,41 @@ const FACE = {
   ps: { A: '✕', B: '○', X: '□', Y: '△' },
 };
 
+// Short on-screen label for a KeyboardEvent.code.
+const NAMED = { Space: 'Spasi', Escape: 'Esc', Enter: 'Enter', Tab: 'Tab', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', ShiftLeft: 'Shift', ShiftRight: 'Shift', ControlLeft: 'Ctrl', ControlRight: 'Ctrl', Backspace: 'Backspace' };
+export function keyLabel(code) {
+  if (NAMED[code]) return NAMED[code];
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit\d$/.test(code)) return code.slice(5);
+  if (/^Numpad/.test(code)) return `Num ${code.slice(6)}`;
+  return code;
+}
+
 // Hints per context and device. Contexts: latihan (also used by the other practice missions),
-// delivery (M4), freeroam. Labels are short so they fit in the 1152 px bar.
-const KB_BASE = [['WASD', 'Gerak'], [['Q', 'E'], 'Putar'], [['Spasi', 'C'], 'Naik/Turun'], ['X', 'Takeoff/Land (tahan)'], ['H', 'Home']];
+// delivery (M4), freeroam. Labels are short so they fit in the 1152 px bar. Key names follow the bindings.
+function kbBase(b) {
+  const L = (a) => keyLabel(b[a]);
+  const move = [b.forward, b.left, b.back, b.right].join() === 'KeyW,KeyA,KeyS,KeyD' ? 'WASD' : [L('forward'), L('left'), L('back'), L('right')].join(' ');
+  return [[move, 'Gerak'], [[L('yawLeft'), L('yawRight')], 'Putar'], [[L('up'), L('down')], 'Naik/Turun'], [L('takeoffLand'), 'Takeoff/Land (tahan)'], [L('home'), 'Home']];
+}
 const PAD_BASE = [['Stick kiri', 'Naik/Putar'], ['Stick kanan', 'Gerak'], ['A', 'Takeoff/Land (tahan)'], ['B', 'Home']];
-const HINTS = {
-  latihan: { keyboard: { left: KB_BASE, right: [['Esc', 'Jeda']] }, gamepad: { left: PAD_BASE, right: [['LB', 'Kamera'], ['RB', 'Kamera']] } },
-  delivery: {
-    keyboard: { left: KB_BASE, right: [['P', 'Ambil/Lepas'], ['V', 'Kamera'], ['Esc', 'Jeda']] },
-    gamepad: { left: PAD_BASE, right: [['D-pad ►', 'Ambil/Lepas'], ['RB', 'Kamera']] },
-  },
-  freeroam: {
-    keyboard: { left: KB_BASE, right: [['B', 'Objek'], ['V', 'Kamera'], ['Tab', 'Panel'], ['Esc', 'Jeda']] },
-    gamepad: { left: PAD_BASE, right: [['RB', 'Kamera']] },
-  },
+const kbRight = {
+  latihan: (L) => [[L('pause'), 'Jeda']],
+  delivery: (L) => [[L('pickupDrop'), 'Ambil/Lepas'], [L('camera'), 'Kamera'], [L('pause'), 'Jeda']],
+  freeroam: (L) => [[L('addObject'), 'Objek'], [L('camera'), 'Kamera'], [L('panelAI'), 'Panel'], [L('pause'), 'Jeda']],
+};
+const PAD_RIGHT = {
+  latihan: [['LB', 'Kamera'], ['RB', 'Kamera']],
+  delivery: [['D-pad ►', 'Ambil/Lepas'], ['RB', 'Kamera']],
+  freeroam: [['RB', 'Kamera']],
 };
 
 // Returns { left, right } for the given device; face-button names follow the controller type.
-export function buildHints(context, device, type = 'xbox') {
-  const set = (HINTS[context] || HINTS.latihan)[device === 'gamepad' ? 'gamepad' : 'keyboard'];
+export function buildHints(context, device, type = 'xbox', bindings = DEFAULT_KEYS) {
+  const ctx = kbRight[context] ? context : 'latihan';
   const face = FACE[type] || FACE.xbox;
   const fix = (list) => list.map(([k, l]) => [typeof k === 'string' && face[k] ? face[k] : k, l]);
-  return { left: fix(set.left), right: fix(set.right) };
+  if (device === 'gamepad') return { left: fix(PAD_BASE), right: fix(PAD_RIGHT[ctx]) };
+  const L = (a) => keyLabel(bindings[a]);
+  return { left: kbBase(bindings), right: kbRight[ctx](L) };
 }

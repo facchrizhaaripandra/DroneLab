@@ -84,3 +84,9 @@ export class HoldTracker {
     return false;
   }
 }
+
+// Move `cur` toward `target` by at most `step` (step = Infinity jumps at once). Used for keyboard acceleration.
+export function approach(cur, target, step) {
+  if (step === Infinity || Math.abs(target - cur) <= step) return target;
+  return cur + Math.sign(target - cur) * step;
+}

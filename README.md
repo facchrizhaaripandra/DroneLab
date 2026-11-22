@@ -1,6 +1,6 @@
-# DroneLab3D (Fase 1 sampai 4)
+# DroneLab3D (Fase 1 sampai 5)
 
-Simulator drone 3D berbasis web (Three.js + Vite). Fase 1: dunia, drone, kamera, loop fisika 1/60 s dengan FPS terukur. Fase 2: input terpadu keyboard + controller dan HUD tetap. Fase 3: menu utama, misi, freeroam. Fase 4: editor perintah (DSL) dan mock server.
+Simulator drone 3D berbasis web (Three.js + Vite). Fase 1: dunia, drone, kamera, loop fisika 1/60 s dengan FPS terukur. Fase 2: input terpadu keyboard + controller dan HUD tetap. Fase 3: menu utama, misi, freeroam. Fase 4: editor perintah (DSL) dan mock server. Fase 5: pengaturan dan penyimpanan.
 
 ## Menjalankan
 
@@ -51,6 +51,7 @@ src/
   nlparse.js      parser bahasa natural lokal (murni)
   vision.js       "apa yang terlihat" lokal untuk detect() (murni)
   editor.js       panel editor perintah (DOM)
+  settings.js     pengaturan: bawaan, validasi, localStorage, remap, preset (murni)
   main.js         loop utama dan alur aplikasi (menu, main, jeda, hasil)
 mock-server/      gateway tiruan (Node, tanpa dependensi)
 tests/            uji Node (node --test)
@@ -108,6 +109,25 @@ Cara pakai: menu Editor perintah (membuka Freeroam dengan editor), atau tekan En
 - Mock server (`npm run mock`): health, missions, runs, events, finish (skor dari kode yang sama dengan stub), leaderboard, detect, decide, command. Tanpa WebSocket (telemetri 10 Hz gagal diam-diam). `command` memakai parser lokal, lainnya dijawab skrip contoh dengan `source: "llm"`.
 - Simulator hanya bicara dengan gateway. `detect` dan `decide` sudah ada di klien tetapi belum dipakai oleh fitur apa pun (menunggu A* dan asisten AI).
 
+## Fase 5: pengaturan
+
+Menu utama > Pengaturan (panah kiri/kanan mengubah nilai, Enter memilih, Esc kembali). Semua perubahan langsung berlaku dan disimpan di `localStorage` (kunci `dronelab.settings.v1`).
+
+| Halaman | Isi |
+| --- | --- |
+| Keyboard | Ubah tombol untuk 21 aksi (pilih aksi, tekan tombol baru; tombol yang sudah dipakai otomatis ditukar, Esc membatalkan), sensitivitas 30-100%, akselerasi 1-5 |
+| Controller | Skema Mode 1/2, sensitivitas 50-150%, deadzone 5-30%, balik sumbu Y, getaran, layar uji stick (dua lingkaran + cincin deadzone) dan tombol uji getaran |
+| Grafik | Preset (Rendah/Sedang/Tinggi/Kustom), target FPS 30/60, resolusi render 50-100%, bayangan, ukuran HUD 80/90/100% |
+
+Keputusan Fase 5:
+- Semua nilai melewati `sanitize()` saat dimuat: JSON rusak, nilai di luar batas, atau tombol ganda tidak bisa merusak aplikasi (kembali ke bawaan).
+- "Akselerasi" keyboard = seberapa cepat tombol mencapai defleksi penuh (2, 4, 8, 16 satuan/detik, atau instan). Ini tidak mengubah fisika drone, jadi misi dan skor tetap adil. "Sensitivitas" keyboard membatasi defleksi maksimum.
+- Preset hanya mengisi resolusi render dan bayangan. Mengubah salah satunya manual menandai preset "Kustom".
+- Target FPS 30: fisika dan input tetap jalan tiap frame, hanya gambar yang dirender tiap 2 frame.
+- Ukuran HUD hanya mengecil (80-100%) ke arah tengah layar, supaya tidak keluar dari margin 5%.
+- Getaran memakai `vibrationActuator` (dual-rumble) saat tabrakan, hanya bila controller sedang dipakai dan opsi menyala.
+- Bilah petunjuk tombol ikut tombol yang sudah diubah. Tombol ` (backtick) dicadangkan untuk panel debug dan tidak bisa dipakai ulang.
+
 ## Kriteria selesai
 
 | Kriteria | Status |
@@ -120,6 +140,7 @@ Cara pakai: menu Editor perintah (membuka Freeroam dengan editor), atau tekan En
 | F3: satu latihan + satu misi utama bisa dimulai, selesai, tampil skor dan rincian | Logika lolos uji (50 tes, termasuk stub gateway). Alur layar belum dilihat di browser |
 | F5: skrip contoh berjalan dan baris aktif ditandai | Berjalan di fisika asli dalam tes (takeoff, goto, rotate, if, land). Penandaan di UI belum dilihat di browser |
 | F6: mematikan server tidak membuat simulator error atau macet | Diuji dengan server HTTP nyata yang dimatikan: stub dan indikator "AI offline" bekerja. Belum diuji di browser |
+| F7: pengaturan tersimpan di localStorage dan berlaku setelah muat ulang | Simpan, muat ulang, dan perbaikan data rusak diuji di Node (78 tes). Layar pengaturan belum dilihat di browser |
 | F4: tambah objek dan buka panel tanpa menghentikan simulasi | Kode ada (B, Tab), belum diuji di browser |
 | F7 (sebagian): menu utama dengan 6 entri | Ada. Pengaturan dan Editor perintah nonaktif sampai Fase 4/5 |
 
@@ -131,7 +152,8 @@ Cara pakai: menu Editor perintah (membuka Freeroam dengan editor), atau tekan En
 - Panel Tab (Deteksi, Jalur A*, Auto-hindari, Auto-pilot) hanya menyimpan status. A* JS dan pemakaian `detect`/`decide` dari AI belum ada.
 - Mock server tidak punya WebSocket dan `plan`.
 - Controller tidak punya tombol tambah objek. Kamera drone (PIP) tidak mengikuti mode kamera V.
-- Pengaturan (Fase 5), optimasi dan Rapier (Fase 6).
+- Optimasi, kualitas adaptif (FPS < 30 selama 2 detik) dan Rapier (Fase 6).
+- Pengaturan tidak bisa dibuka dari menu Jeda, hanya dari menu utama. Tombol controller tidak bisa diubah (spec hanya meminta remap keyboard).
 - Id misi mengikuti file Orang 3 (`m4_delivery`). Perlu dikonfirmasi dengan Orang 3.
 
 ## Perbaikan controller (setelah uji pertama)

@@ -1,7 +1,8 @@
 // Unified input: keyboard + gamepad -> one action object -> sim.applyAction() (called from main).
 // Also tracks the last-used device so the HUD can switch key hints automatically.
 import { DEFAULT_KEYS, KEY_IMPULSES, PAD, PAD_IMPULSES } from './bindings.js';
-import { DEFAULT_INPUT, mapSticks, keysToAction, padType, pickStickAxes, HoldTracker } from './inputmap.js';
+import { DEFAULT_INPUT, mapSticks, keysToAction, padType, pickStickAxes, approach, HoldTracker } from './inputmap.js';
+import { rampRate } from './settings.js';
 import { events } from './events.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -18,6 +19,7 @@ export function createInput() {
   const keys = new Set();
   const kbd = { yaw: 0, climb: 0, strafe: 0, forward: 0 };
   const pad = { yaw: 0, climb: 0, strafe: 0, forward: 0 };
+  const kbdRaw = { yaw: 0, climb: 0, strafe: 0, forward: 0 };
   const hold = new HoldTracker(0.6);
   const prev = new Array(BUTTONS).fill(false);
 
@@ -30,6 +32,10 @@ export function createInput() {
     menuMode: false,         // true while a menu is open: only 'nav' events, the drone gets no action
     debugOn: false,          // toggled with the ` key: shows raw gamepad data in the HUD
     config: { ...DEFAULT_INPUT },
+    kbd: { sensitivity: 1, rampRate: Infinity }, // keyboard sensitivity and ramp (units/s), from Settings
+    rumbleOn: true,
+    capture: null,           // when set, the next key press goes to this callback (key remapping)
+    sticks: null,            // raw stick values LX, LY, RX, RY (for the stick test screen)
     bindings: { ...DEFAULT_KEYS },
     poll,
   };
@@ -43,8 +49,28 @@ export function createInput() {
   rebuild();
   input.rebuild = rebuild;
 
+  // Apply a sanitized settings object (settings.js) to the live input.
+  input.applySettings = (s) => {
+    Object.assign(input.config, { mode: s.controller.mode, sensitivity: s.controller.sensitivity, deadzone: s.controller.deadzone, invertY: s.controller.invertY });
+    input.rumbleOn = s.controller.rumble;
+    input.kbd.sensitivity = s.keyboard.sensitivity;
+    input.kbd.rampRate = rampRate(s.keyboard.ramp);
+    input.bindings = { ...s.keyboard.keys };
+    rebuild();
+  };
+
+  // Short vibration (collisions, "test vibration"). Silently does nothing on pads without a rumble motor.
+  input.rumble = (strength = 0.6, ms = 150, force = false) => {
+    if (!force && (!input.rumbleOn || input.device !== 'gamepad')) return;
+    const gp = activePad();
+    const fx = gp && gp.vibrationActuator;
+    if (!fx || !fx.playEffect) return;
+    try { fx.playEffect('dual-rumble', { duration: ms, strongMagnitude: strength, weakMagnitude: strength * 0.6 }); } catch { /* ignore */ }
+  };
+
   // Gamepad bookkeeping. Axis map and "last values" are per pad and reset when the pad changes.
   const sticks = [0, 0, 0, 0];
+  input.sticks = sticks;
   const lastAxes = new Array(32).fill(0);
   let axisMap = [0, 1, 2, 3];
   let padIndex = -1, padId = '', primed = false;
@@ -66,6 +92,13 @@ export function createInput() {
   input.releaseAll = () => keys.clear();
 
   window.addEventListener('keydown', (e) => {
+    if (input.capture) { // key remapping: swallow the key, Escape cancels
+      const done = input.capture;
+      input.capture = null;
+      e.preventDefault();
+      done(e.code === 'Escape' ? null : e.code);
+      return;
+    }
     if (typing(e)) return;
     if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -92,7 +125,12 @@ export function createInput() {
 
   // Called once per rendered frame (dt in seconds).
   function poll(dt) {
-    keysToAction(keys, input.bindings, kbd);
+    keysToAction(keys, input.bindings, kbdRaw);
+    const ramp = input.kbd.rampRate === Infinity ? Infinity : input.kbd.rampRate * dt, k = input.kbd.sensitivity;
+    kbd.yaw = approach(kbd.yaw, kbdRaw.yaw * k, ramp);
+    kbd.climb = approach(kbd.climb, kbdRaw.climb * k, ramp);
+    kbd.strafe = approach(kbd.strafe, kbdRaw.strafe * k, ramp);
+    kbd.forward = approach(kbd.forward, kbdRaw.forward * k, ramp);
     pad.yaw = pad.climb = pad.strafe = pad.forward = 0;
 
     const gp = activePad();
