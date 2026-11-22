@@ -1,6 +1,6 @@
 // Gateway client (Orang 3). The simulator only talks to the gateway, never to the AI service.
 // If the gateway is not reachable, a local stub takes over so missions still work (provisional score).
-import { MISSIONS, getMission, scoreFromEvents } from './missions.js';
+import { MISSIONS, scoreFromEvents } from './missions.js';
 import { makeMissionConfig } from './worldconfig.js';
 
 const TIMEOUT_MS = 1500;      // gateway calls

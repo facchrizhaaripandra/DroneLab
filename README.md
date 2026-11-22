@@ -1,6 +1,6 @@
-# DroneLab3D (Fase 1 sampai 5)
+# DroneLab3D (Fase 1 sampai 6)
 
-Simulator drone 3D berbasis web (Three.js + Vite). Fase 1: dunia, drone, kamera, loop fisika 1/60 s dengan FPS terukur. Fase 2: input terpadu keyboard + controller dan HUD tetap. Fase 3: menu utama, misi, freeroam. Fase 4: editor perintah (DSL) dan mock server. Fase 5: pengaturan dan penyimpanan.
+Simulator drone 3D berbasis web (Three.js + Vite). Fase 1: dunia, drone, kamera, loop fisika 1/60 s dengan FPS terukur. Fase 2: input terpadu keyboard + controller dan HUD tetap. Fase 3: menu utama, misi, freeroam. Fase 4: editor perintah (DSL) dan mock server. Fase 5: pengaturan dan penyimpanan. Fase 6: optimasi dan perapian.
 
 ## Menjalankan
 
@@ -8,6 +8,7 @@ Simulator drone 3D berbasis web (Three.js + Vite). Fase 1: dunia, drone, kamera,
 npm install
 npm run dev      # buka alamat yang tampil (biasanya http://localhost:5173), Chrome terbaru
 npm test         # uji Node, tanpa browser (termasuk uji HTTP ke mock server)
+npm run bench    # biaya dan alokasi kode per langkah (fisika, skrip, misi)
 npm run mock     # mock gateway di http://localhost:8000 (MOCK_AI=down untuk mensimulasikan AI mati)
 ```
 
@@ -51,9 +52,11 @@ src/
   nlparse.js      parser bahasa natural lokal (murni)
   vision.js       "apa yang terlihat" lokal untuk detect() (murni)
   editor.js       panel editor perintah (DOM)
+  quality.js      kualitas adaptif: turun otomatis jika FPS rendah (murni)
   settings.js     pengaturan: bawaan, validasi, localStorage, remap, preset (murni)
   main.js         loop utama dan alur aplikasi (menu, main, jeda, hasil)
 mock-server/      gateway tiruan (Node, tanpa dependensi)
+scripts/          bench.mjs (npm run bench)
 tests/            uji Node (node --test)
 ```
 
@@ -128,6 +131,22 @@ Keputusan Fase 5:
 - Getaran memakai `vibrationActuator` (dual-rumble) saat tabrakan, hanya bila controller sedang dipakai dan opsi menyala.
 - Bilah petunjuk tombol ikut tombol yang sudah diubah. Tombol ` (backtick) dicadangkan untuk panel debug dan tidak bisa dipakai ulang.
 
+## Fase 6: optimasi dan perapian
+
+Yang dikerjakan:
+- **Kualitas adaptif** (`quality.js`): jika FPS di bawah 30 selama 2 detik berturut-turut saat bermain, kualitas turun satu tingkat (Penuh 100% > Sedang 80% > Rendah 60% tanpa bayangan > Minimum 50%), dengan toast dan nama tingkat di baris FPS. Aturan: tidak pernah naik sendiri (supaya tidak bolak-balik), jeda 3 detik setelah turun, jeda 4 detik setelah dunia baru (kompilasi shader), tingkat yang tidak mengubah apa pun dilewati. Tidak mengubah pengaturan tersimpan, hanya membatasi yang dipakai renderer. Mengubah pengaturan grafik mengembalikannya ke awal. Pada target 30 FPS batasnya 27.
+- **Satu lintasan bayangan per frame**: lintasan kedua (kamera drone) memakai ulang shadow map dari lintasan utama (`shadowMap.autoUpdate = false` sementara).
+- **Menu, jeda, hasil digambar maksimal 30 FPS**, gameplay mengikuti target FPS.
+- **HUD hanya menulis teks yang berubah** (10 kali per detik, tanpa layout ulang yang sia-sia).
+- **Pemeriksaan alokasi** (`npm run bench`): fisika, penjalan skrip, dan pelacak misi diukur 600 000 langkah (10 000 detik terbang): sekitar 0,2 sampai 0,6 mikrodetik per langkah dan pertumbuhan heap di bawah 150 KB total (praktis nol per langkah). Loop render sudah memakai ulang geometri, material, dan vektor; objek baru hanya dibuat saat ada kejadian (tombol, ganti misi, tekan B) dan di tick HUD 10 Hz (telemetri, string teks).
+- Perapian: impor dan ekspor yang tidak terpakai dihapus.
+
+Sengaja tidak dikerjakan di fase ini:
+- **Rapier**: spec membolehkan AABB sebagai versi awal ("Versi paling awal boleh hanya AABB + Raycaster"), dan paket tidak bisa dipasang dan diuji di lingkungan saya. Tabrakan memakai bola vs kotak (`collision.js`), sensor cincin dan zona memakai jarak. Perlu keputusan Anda jika Rapier tetap diwajibkan.
+- **Ekspor dataset YOLO (`?export=1`)**: dunia saat ini belum punya kelas person/fire/landmark/defect untuk diberi kotak. Ini menunggu misi M1, M2, M5.
+
+Cara cek di laptop Anda: buka Freeroam, lihat angka FPS di panel status. Untuk memaksa kualitas turun, pilih Pengaturan > Grafik > Resolusi 100% di jendela sangat besar, atau perlambat dengan DevTools (Performance > CPU 6x slowdown). Hasil ukur FPS di GPU asli belum ada, karena saya tidak bisa menjalankan browser.
+
 ## Kriteria selesai
 
 | Kriteria | Status |
@@ -141,6 +160,7 @@ Keputusan Fase 5:
 | F5: skrip contoh berjalan dan baris aktif ditandai | Berjalan di fisika asli dalam tes (takeoff, goto, rotate, if, land). Penandaan di UI belum dilihat di browser |
 | F6: mematikan server tidak membuat simulator error atau macet | Diuji dengan server HTTP nyata yang dimatikan: stub dan indikator "AI offline" bekerja. Belum diuji di browser |
 | F7: pengaturan tersimpan di localStorage dan berlaku setelah muat ulang | Simpan, muat ulang, dan perbaikan data rusak diuji di Node (78 tes). Layar pengaturan belum dilihat di browser |
+| F8: FPS tercatat di panel status; kualitas turun otomatis jika FPS < 30 selama 2 detik | Logika diuji (82 tes). FPS di laptop tanpa GPU khusus belum diukur |
 | F4: tambah objek dan buka panel tanpa menghentikan simulasi | Kode ada (B, Tab), belum diuji di browser |
 | F7 (sebagian): menu utama dengan 6 entri | Ada. Pengaturan dan Editor perintah nonaktif sampai Fase 4/5 |
 
@@ -152,7 +172,7 @@ Keputusan Fase 5:
 - Panel Tab (Deteksi, Jalur A*, Auto-hindari, Auto-pilot) hanya menyimpan status. A* JS dan pemakaian `detect`/`decide` dari AI belum ada.
 - Mock server tidak punya WebSocket dan `plan`.
 - Controller tidak punya tombol tambah objek. Kamera drone (PIP) tidak mengikuti mode kamera V.
-- Optimasi, kualitas adaptif (FPS < 30 selama 2 detik) dan Rapier (Fase 6).
+- Rapier, ekspor dataset YOLO (lihat Fase 6).
 - Pengaturan tidak bisa dibuka dari menu Jeda, hanya dari menu utama. Tombol controller tidak bisa diubah (spec hanya meminta remap keyboard).
 - Id misi mengikuti file Orang 3 (`m4_delivery`). Perlu dikonfirmasi dengan Orang 3.
 

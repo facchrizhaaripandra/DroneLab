@@ -20,6 +20,7 @@ import { canSee } from './vision.js';
 import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec, settingsMenuSpec, keyboardSpec, controllerSpec, stickTestSpec, graphicsSpec } from './screens.js';
 import { loadSettings, saveSettings, sanitize, remapKey, applyPreset, markCustom } from './settings.js';
 import { DEFAULT_KEYS } from './bindings.js';
+import { AdaptiveQuality } from './quality.js';
 import { MISSIONS, getMission, MissionRun } from './missions.js';
 import { Battery } from './battery.js';
 import { createGateway } from './gateway.js';
@@ -31,6 +32,8 @@ const GATEWAY_URL = import.meta.env?.VITE_GATEWAY_URL || 'http://localhost:8000'
 // localStorage can throw (blocked cookies, private mode): fall back to a store that remembers nothing.
 const store = (() => { try { return window.localStorage; } catch { return { getItem: () => null, setItem() {} }; } })();
 let settings = loadSettings(store);
+const aq = new AdaptiveQuality(); // may lower the render scale and shadows when FPS is low (never saved)
+aq.setTarget(settings.graphics.targetFps);
 
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -44,7 +47,7 @@ function layout() {
   const s = Math.min(window.innerWidth / W, window.innerHeight / H);
   stage.style.transform = `translate(-50%, -50%) scale(${s})`;
   // Render at the real on-screen resolution (capped), not at the CSS 1280x720 size.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * s * settings.graphics.renderScale);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * s * aq.effective(settings.graphics).renderScale);
   renderer.setSize(W, H);
 }
 window.addEventListener('resize', layout);
@@ -64,12 +67,14 @@ const gateway = createGateway(GATEWAY_URL);
 
 // ---- settings: save, then apply to input, graphics and hints ----
 function applyGraphics() {
-  world.setShadows(settings.graphics.shadows);
+  world.setShadows(aq.effective(settings.graphics).shadows);
   hud.setScale(settings.graphics.hudScale);
   layout();
 }
 function commit() {
   saveSettings(store, settings);
+  aq.reset(); // the user chose a quality on purpose: start from it again
+  aq.setTarget(settings.graphics.targetFps);
   input.applySettings(settings);
   applyGraphics();
   hintDevice = ''; // rebuild the hint bar (key names may have changed)
@@ -155,7 +160,8 @@ function loadWorld(cfg) {
   world.dispose();
   config = normalizeConfig(cfg);
   world = buildWorld(scene, config);
-  world.setShadows(settings.graphics.shadows);
+  world.setShadows(aq.effective(settings.graphics).shadows);
+  aq.holdFor(4); // a new world compiles shaders and warms caches: do not judge FPS yet
   seenHits = 0;
   sim = new Flight();
   commander.stop('Dunia diganti');
@@ -405,7 +411,8 @@ function frame(now) {
   }
 
   // Target FPS 30: physics and input still run every frame, but only every other frame is drawn.
-  if (settings.graphics.targetFps < 60 && now - lastDraw < 1000 / settings.graphics.targetFps - 4) return;
+  const drawFps = state === 'play' ? settings.graphics.targetFps : Math.min(30, settings.graphics.targetFps); // menus do not need 60
+  if (drawFps < 60 && now - lastDraw < 1000 / drawFps - 4) return;
   const drawDt = Math.min((now - lastDraw) / 1000, 0.1);
   lastDraw = now;
 
@@ -417,17 +424,26 @@ function frame(now) {
   renderer.render(scene, camera);
 
   // Second pass for the PIP drone camera: same scene, small scissored viewport.
+  renderer.shadowMap.autoUpdate = false; // the shadow map from the main pass is still valid: skip a second shadow pass
   renderer.setScissorTest(true);
   renderer.setViewport(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
   renderer.setScissor(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
   renderer.render(scene, drone.pipCamera);
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, W, H);
+  renderer.shadowMap.autoUpdate = true;
 
   // FPS over 0.5 s windows; HUD text refreshes 10 times per second.
   frames++;
   msAvg += (drawDt * 1000 - msAvg) * 0.05;
-  if (fpsTime >= 0.5) { fps = frames / fpsTime; frames = 0; fpsTime = 0; }
+  if (fpsTime >= 0.5) {
+    fps = frames / fpsTime;
+    if (state === 'play' && aq.sample(fps, fpsTime, settings.graphics)) { // 2 s below the limit: one step down
+      applyGraphics();
+      toast(`FPS rendah: kualitas diturunkan otomatis (${aq.name})`);
+    }
+    frames = 0; fpsTime = 0;
+  }
 
   hud.setHold(input.holdProgress);
   if (input.device !== hintDevice || input.padType !== hintType) { // rebuild hints only on change
@@ -448,7 +464,7 @@ function updateHud(now) {
   const tel = sim.telemetry();
   const level = session.battery.level;
   hud.update({
-    tel, fps, ms: msAvg, battery: level,
+    tel, fps, ms: msAvg, quality: aq.level ? aq.name : '', battery: level,
     flightTime: run ? run.t : flightTime,
     collisions: sim.collisionCount,
     goalText: run ? run.text || 'Lepas landas (tahan X / A)' : `Terbang bebas · objek ditambah: ${session.extra}`,

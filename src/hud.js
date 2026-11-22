@@ -19,6 +19,7 @@ function fmtTime(sec) {
 }
 
 export function createHud(root, config) {
+  const put = (node, text) => { if (node.textContent !== text) node.textContent = text; };
   root.innerHTML = `
     <div id="telem" class="panel"><h2>Telemetri</h2>
       <div class="row mono"><span>ALT</span><span id="t-alt"></span></div>
@@ -124,18 +125,19 @@ export function createHud(root, config) {
       el.hold.style.background = `conic-gradient(#1f1f1f ${p * 100}%, #ddd 0)`;
     },
     // runs ~10 times per second
+    // `put` writes a text only when it changed, so the browser does not redo layout 10 times a second for nothing.
     update(s, now) {
       const t = s.tel;
-      el.alt.textContent = `${t.alt.toFixed(1)} m`;
-      el.spd.textContent = `${t.speed.toFixed(1)} m/s`;
-      el.bat.textContent = `${Math.round(s.battery)}%`;
-      el.main.textContent = s.goalText;
+      put(el.alt, `${t.alt.toFixed(1)} m`);
+      put(el.spd, `${t.speed.toFixed(1)} m/s`);
+      put(el.bat, `${Math.round(s.battery)}%`);
+      put(el.main, s.goalText);
       el.bar.style.width = `${s.progress * 100}%`;
-      el.time.textContent = `Waktu ${fmtTime(s.flightTime)}`;
-      el.hit.textContent = `Tabrakan ${s.collisions}`;
+      put(el.time, `Waktu ${fmtTime(s.flightTime)}`);
+      put(el.hit, `Tabrakan ${s.collisions}`);
       if (t.mode !== lastMode) { lastMode = t.mode; el.mode.textContent = t.mode; }
-      el.ctl.textContent = s.deviceLabel;
-      el.fps.textContent = `${s.fps.toFixed(0)} (${s.ms.toFixed(1)} ms)`;
+      put(el.ctl, s.deviceLabel);
+      put(el.fps, `${s.fps.toFixed(0)} (${s.ms.toFixed(1)} ms)${s.quality ? ` · ${s.quality}` : ''}`);
       if (now > toastUntil) el.toast.style.opacity = '0';
 
       mm.drawImage(stat, 0, 0);

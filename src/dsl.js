@@ -21,7 +21,6 @@ const COMMANDS = {
   pickup: [], drop: [], mark: [],
   return_home: [],
 };
-export const COMMAND_NAMES = Object.keys(COMMANDS);
 
 // ---- tokenizer ----
 function tokenize(src) {
