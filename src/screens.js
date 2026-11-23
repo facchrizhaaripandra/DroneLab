@@ -1,17 +1,21 @@
 // Menu screen specs (data only). main.js supplies the callbacks, ui.js draws them.
 import { esc } from './ui.js';
-import { keyLabel } from './bindings.js';
+import { keyLabel, DEFAULT_KEYS } from './bindings.js';
 import { RAMP_NAMES, PRESET_NAMES } from './settings.js';
 
-const TIER = { latihan: 'Latihan (tanpa AI, skor tidak resmi)', utama: 'Misi utama (skor resmi dari gateway)' };
+const VARIANT = { gedung: 'gedung', hutan: 'hutan', hotel: 'hotel', gunung: 'gunung', jembatan: 'jembatan', lahan: 'lahan' };
+const TIER = { latihan: 'Latihan', utama: 'Misi utama' };
+const TIER_NOTE = { latihan: 'tanpa AI, skor tidak resmi', utama: 'skor dari gateway' };
 
 export function mainMenuSpec(cb) {
   return {
-    title: 'DroneLab3D', subtitle: 'Simulator drone 3D', foot: '↑ ↓ pilih · Enter / A pilih · Esc / B kembali',
+    title: 'DroneLab3D', subtitle: 'Latihan terbang, misi penyelamatan, dan inspeksi dari udara', hero: true,
+    foot: '↑ ↓ pilih · Enter / A pilih · Esc / B kembali',
     items: [
       { label: 'Mulai', note: 'Latihan terbang', action: cb.quickStart },
       { label: 'Misi', note: 'Latihan dan misi utama', action: cb.missions },
       { label: 'Freeroam', note: 'Terbang bebas', action: cb.freeroam },
+      { label: 'Peta realistis', note: 'Lingkungan 3D dari Blender', action: cb.scenes },
       { label: 'Editor perintah', note: 'Skrip dan bahasa natural', action: cb.editor },
       { label: 'Pengaturan', note: 'Keyboard, controller, grafik', action: cb.settings },
       { label: 'Bantuan', action: cb.help },
@@ -22,11 +26,16 @@ export function mainMenuSpec(cb) {
 export function missionSpec(list, gatewayMode, cb) {
   const items = [];
   for (const tier of ['latihan', 'utama']) {
+    items.push({ heading: true, label: TIER[tier], note: TIER_NOTE[tier], enabled: false, action: () => {} }); // section title, never focused
     for (const m of list.filter((x) => x.tier === tier)) {
-      items.push({
-        label: m.title, note: m.available ? `${TIER[tier].split(' (')[0]} · acuan ${m.par_time_s} s` : 'belum tersedia',
-        enabled: m.available, action: () => cb.start(m),
-      });
+      // A mission with variants gets one entry per variant (gedung / hutan, hotel / gunung, ...).
+      for (const v of m.variants && m.variants.length > 1 ? m.variants : [null]) {
+        items.push({
+          label: v ? `${m.title}: ${VARIANT[v] || v}` : m.title,
+          note: m.available ? `acuan ${String(Math.round(m.par_time_s / 6) / 10).replace('.', ',')} menit` : 'belum tersedia',
+          enabled: m.available, action: () => cb.start(m, v || (m.variants && m.variants[0]) || undefined),
+        });
+      }
     }
   }
   items.push({ label: 'Kembali', action: cb.back });
@@ -37,17 +46,19 @@ export function missionSpec(list, gatewayMode, cb) {
   };
 }
 
+const SEVERITY = { ringan: 'ringan', sedang: 'sedang', berat: 'berat' };
 const REASON = { completed: 'Selesai', timeout: 'Waktu habis', battery: 'Baterai habis', crashed: 'Jatuh' };
 const GRADE = { gold: 'Emas', silver: 'Perak', bronze: 'Perunggu', none: 'Belum ada peringkat' };
 
 // res: { score, grade, breakdown } or null; official: true only for a score computed by the gateway.
 export function resultSpec(def, reason, res, official, cb) {
+  const share = (b) => (Number(b.max) > 0 ? Math.max(0, Math.min(100, (Number(b.points) / Number(b.max)) * 100)) : 0);
   const rows = res ? res.breakdown.map((b) =>
-    `<tr><td>${esc(b.name)}</td><td class="num">${esc(b.points)} / ${esc(b.max)}</td><td class="muted">${esc(b.note || '')}</td></tr>`).join('') : '';
+    `<tr><td>${esc(b.name)}<span class="meter"><i style="width:${share(b).toFixed(0)}%"></i></span></td><td class="num">${esc(b.points)} / ${esc(b.max)}</td><td class="muted">${esc(b.note || '')}</td></tr>`).join('') : '';
   const body = res
-    ? `<div class="score"><b>${esc(res.score)}</b><span>/ 100 · ${esc(GRADE[res.grade] || res.grade)}</span></div>
+    ? `<div class="score"><b>${esc(res.score)}</b><span>/ 100</span><em class="grade g-${esc(res.grade)}">${esc(GRADE[res.grade] || res.grade)}</em></div>
        <p class="tag">${official ? 'Skor resmi (gateway)' : 'Skor sementara (lokal, tidak resmi)'}</p>
-       <table>${rows}</table>`
+       <table>${rows}</table>${extraBody(res)}`
     : '<p>Skor tidak tersedia (gateway terputus saat menyelesaikan run).</p>';
   return {
     title: `${def.title}: ${REASON[reason] || reason}`, body,
@@ -56,22 +67,65 @@ export function resultSpec(def, reason, res, official, cb) {
   };
 }
 
+// M2 shot results and the M5 inspection report (lists only; no thumbnails yet).
+function extraBody(res) {
+  let h = '';
+  if (res.details && res.details.length) {
+    h += '<p class="tag">Daftar bidikan</p><table>' + res.details.map((d) =>
+      `<tr><td>${esc(d.label)}</td><td class="num">${d.done ? esc(d.score) : '-'} / 100</td><td class="muted">${d.done ? (d.type === 'photo' ? 'foto' : 'video') + ' terbaik' : 'belum ada'}</td></tr>`).join('') + '</table>';
+  }
+  if (res.report) {
+    const r = res.report;
+    h += `<p class="tag">Laporan inspeksi: cakupan fasad ${Math.round(r.coverage * 100)}% (${r.panels.covered} dari ${r.panels.total} panel)</p><table>`
+      + r.defects.map((d) => `<tr><td>Cacat #${esc(d.id)} (${esc(d.kind)})</td><td class="num">${esc(SEVERITY[d.severity] || d.severity)}</td><td class="muted">${d.photographed ? 'foto' : 'tanpa foto'}, ${d.marked ? 'ditandai' : 'belum ditandai'} · posisi ${d.pos.map((v) => Math.round(v)).join(', ')}</td></tr>`).join('') + '</table>';
+  }
+  return h;
+}
+
 export function pauseSpec(cb) {
+  const items = [{ label: 'Lanjut', action: cb.resume }, { label: 'Ulangi', action: cb.retry }];
+  if (cb.finish) items.push({ label: 'Akhiri dan lihat skor', note: 'selesai sekarang', action: cb.finish });
+  items.push({ label: 'Menu utama', action: cb.main });
   return {
     title: 'Jeda', dim: true,
-    items: [{ label: 'Lanjut', action: cb.resume }, { label: 'Ulangi', action: cb.retry }, { label: 'Menu utama', action: cb.main }],
+    items,
     onBack: cb.resume,
   };
 }
 
-export function helpSpec(cb) {
-  const body = `<table class="help">
-    <tr><td>Keyboard</td><td>W A S D gerak · Q E putar · Spasi / C naik / turun · X tahan takeoff/land · H return home</td></tr>
-    <tr><td></td><td>F foto · P ambil/lepas paket · B tambah objek (freeroam) · V kamera · Tab panel · Enter editor perintah · Esc jeda</td></tr>
-    <tr><td>Controller</td><td>Stick kiri naik/putar · stick kanan gerak · A tahan takeoff/land · B home · X foto · LB/RB kamera · Start jeda</td></tr>
-    <tr><td></td><td>D-pad kanan ambil/lepas paket</td></tr>
-    <tr><td>Debug</td><td>Tombol &#96; (backtick) membuka panel data controller</td></tr></table>`;
-  return { title: 'Bantuan', body, items: [{ label: 'Kembali', action: cb.back }], onBack: cb.back };
+// Help: what each control does, grouped by task. Keyboard keys follow the player's own bindings.
+export function helpSpec(cb, keys = DEFAULT_KEYS) {
+  const k = (a) => `<span class="key">${esc(keyLabel(keys[a] || DEFAULT_KEYS[a]))}</span>`;
+  const p = (...b) => b.map((x) => `<span class="key pad">${esc(x)}</span>`).join('');
+  const rows = [
+    ['Terbang', [
+      ['Maju, mundur, geser', `${k('forward')}${k('left')}${k('back')}${k('right')}`, p('Stick kanan')],
+      ['Naik dan turun', `${k('up')}${k('down')}`, p('Stick kiri ↑↓')],
+      ['Putar', `${k('yawLeft')}${k('yawRight')}`, p('Stick kiri ←→')],
+      ['Lepas landas / mendarat (tahan)', k('takeoffLand'), p('A')],
+      ['Pulang ke pad', k('home'), p('B')],
+    ]],
+    ['Kamera dan misi', [
+      ['Foto', k('photo'), p('X')],
+      ['Rekam video', k('record'), p('D-pad ←')],
+      ['Tandai korban atau cacat', k('mark'), p('D-pad ↑')],
+      ['Semprot (tahan)', k('spray'), p('RT')],
+      ['Mode panas', k('thermal'), p('D-pad ↓')],
+      ['Ambil / lepas paket', k('pickupDrop'), p('D-pad →')],
+      ['Ganti kamera', k('camera'), p('LB', 'RB')],
+    ]],
+    ['Lainnya', [
+      ['Editor perintah', k('command'), ''],
+      ['Panel asisten AI', k('panelAI'), ''],
+      ['Tambah objek (freeroam)', k('addObject'), ''],
+      ['Jeda', k('pause'), p('Start')],
+      ['Panel data controller', '<span class="key">`</span>', ''],
+    ]],
+  ];
+  const table = (groups) => `<table class="help"><tr class="hd"><td></td><td>Keyboard</td><td>Controller</td></tr>${groups.map(([group, list]) =>
+    `<tr class="grp"><td colspan="3">${group}</td></tr>` + list.map(([what, kb, pad]) => `<tr><td>${what}</td><td>${kb}</td><td>${pad}</td></tr>`).join('')).join('')}</table>`;
+  const body = `<div class="help-cols">${table([rows[0], rows[2]])}${table([rows[1]])}</div>`; // flying + other on the left, camera and mission on the right
+  return { title: 'Bantuan', subtitle: 'Tombol keyboard mengikuti pengaturan Anda.', body, items: [{ label: 'Kembali', action: cb.back }], onBack: cb.back, wide: true };
 }
 
 // ---- Settings screens. `get()` returns the current settings; `cb` does the changes (main.js saves and applies them). ----
@@ -108,6 +162,7 @@ export function keyboardSpec(get, getCapturing, cb) {
   const items = Object.keys(ACTION_NAMES).map((a) => ({
     label: ACTION_NAMES[a],
     note: capturing === a ? 'tekan tombol baru... (Esc batal)' : keyLabel(s.keys[a]),
+    key: capturing !== a, // drawn as a keycap
     action: () => cb.remap(a),
   }));
   items.unshift(
@@ -157,4 +212,12 @@ export function graphicsSpec(get, cb) {
       { label: 'Kembali', action: cb.back },
     ],
   };
+}
+
+// Realistic Blender scenes (public/scenes/index.json). Flown in freeroam mode.
+export function sceneSpec(list, cb) {
+  const items = list.map((e) => ({ label: e.title, note: `${e.notes || 'freeroam'} · ${e.glb_mb} MB`, action: () => cb.start(e) }));
+  if (!list.length) items.push({ label: 'Belum ada scene', note: 'public/scenes/index.json tidak ditemukan', enabled: false, action: () => {} });
+  items.push({ label: 'Kembali', action: cb.back });
+  return { title: 'Peta realistis', subtitle: 'Terbang bebas di lingkungan 3D. Pemuatan pertama butuh beberapa detik.', items, onBack: cb.back };
 }

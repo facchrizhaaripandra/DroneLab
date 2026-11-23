@@ -34,21 +34,35 @@ export function createMenu(root) {
       q('.sub').textContent = s.subtitle || '';
       q('.body').innerHTML = s.body || '';
       q('.foot').textContent = s.foot || '';
-      el.classList.toggle('dim', s.dim !== false);
+      el.classList.toggle('dim', s.dim !== false && !s.hero);
+      el.classList.toggle('hero', !!s.hero); // main menu: left column over the live 3D backdrop
+      el.classList.toggle('small', !s.hero && !s.body && s.items.length <= 4); // pause, loading, errors
+      el.classList.toggle('wide', !!s.wide); // help: three columns
       const list = q('.list');
       list.innerHTML = '';
       buttons = s.items.map((it, i) => {
+        if (it.heading) { // section title inside a list: not a button, never focused
+          const h = document.createElement('div');
+          h.className = 'mh';
+          h.innerHTML = `<span>${esc(it.label)}</span><small>${esc(it.note || '')}</small>`;
+          list.appendChild(h);
+          return h;
+        }
         const b = document.createElement('button');
         b.className = 'mi';
         b.disabled = it.enabled === false;
-        b.innerHTML = `<span>${esc(it.label)}</span><small>${esc(it.note || '')}</small>`;
+        const note = it.key ? `<span class="key">${esc(it.note || '')}</span>` : esc(it.note || '');
+        b.innerHTML = `<span>${esc(it.label)}</span><small>${note}</small>`;
+        if (it.step) b.classList.add('stepper'); // value changed with left / right
         b.addEventListener('click', () => { b.blur(); index = i; menu.activate(); }); // blur: Enter/Space must not click twice
+        b.addEventListener('mouseenter', () => { if (!b.disabled && index !== i) { index = i; paint(); } }); // the mouse moves the same highlight as the keys
         list.appendChild(b);
         return b;
       });
       index = keepIndex ? Math.min(prev, s.items.length - 1) : Math.max(0, s.items.findIndex((it) => it.enabled !== false));
       el.style.display = 'flex';
-      paint();
+      if (!keepIndex) q('.card').scrollTop = 0; // a new screen starts at its title, even if the focused item is far down
+      paint(keepIndex);
     },
     close() { spec = null; el.style.display = 'none'; },
     activate() {
@@ -66,9 +80,9 @@ export function createMenu(root) {
     tick() { if (spec && spec.tick) spec.tick(el); }, // ~10 Hz, for live screens (stick test)
   };
 
-  function paint() {
+  function paint(scroll = true) {
     buttons.forEach((b, i) => b.classList.toggle('sel', i === index));
-    if (buttons[index] && buttons[index].scrollIntoView) buttons[index].scrollIntoView({ block: 'nearest' });
+    if (scroll && buttons[index] && buttons[index].scrollIntoView) buttons[index].scrollIntoView({ block: 'nearest' });
   }
 
   events.on('nav', ({ dir }) => {

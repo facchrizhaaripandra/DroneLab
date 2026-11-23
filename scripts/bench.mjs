@@ -49,3 +49,15 @@ measure('MissionRun.step + Battery.step', () => {
   const b = new Battery(cfg.battery);
   for (let i = 0; i < N; i++) { f.step(STEP, []); b.step(STEP, true, 3, 0); run.step(STEP, f, 100, 0, 5); }
 });
+
+// Tahap 8: the four main missions must not allocate per step either (outside fire zones; burning allocates 4 times a second).
+for (const [id, variant] of [['m1_sar', 'hutan'], ['m2_foto', 'hotel'], ['m3_agri'], ['m5_inspeksi', 'gedung']]) {
+  measure(`MissionRun.step ${id}`, () => {
+    const f = new Flight();
+    f.takeoff(10);
+    const c = makeMissionConfig(id, 42, variant);
+    const run = new MissionRun(id, c);
+    run.limitS = 1e12;
+    for (let i = 0; i < N; i++) { f.step(STEP, []); run.step(STEP, f, 100, 0, 0); }
+  });
+}

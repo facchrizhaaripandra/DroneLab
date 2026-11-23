@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { events } from './events.js';
 import { makeDefaultConfig } from './worldconfig.js';
+import { makeAgri, cellState } from './agri.js';
 
 export { makeDefaultConfig };
 
@@ -30,58 +31,263 @@ function instancedBoxes(list, material, colorFn) {
   return mesh;
 }
 
+// Sky: a vertical gradient used as an equirectangular background (zenith blue -> pale horizon -> haze below).
+let skyTex = null;
+function skyTexture() {
+  if (skyTex) return skyTex;
+  const c = document.createElement('canvas'); c.width = 4; c.height = 512;
+  const g = c.getContext('2d'), grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, '#3f78b8'); grad.addColorStop(0.32, '#7fa9d4'); grad.addColorStop(0.49, '#d3e2ee');
+  grad.addColorStop(0.52, '#c9d6dc'); grad.addColorStop(1, '#8c9a8e');
+  g.fillStyle = grad; g.fillRect(0, 0, 4, 512);
+  skyTex = new THREE.CanvasTexture(c);
+  skyTex.mapping = THREE.EquirectangularReflectionMapping;
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  return skyTex;
+}
+const HORIZON = 0xd3e2ee;
+
+// Soft round puff (smoke) and flame glow textures, drawn once on a canvas.
+let puffTex = null, glowTex = null;
+function radialTexture(stops) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  for (const [o, col] of stops) grad.addColorStop(o, col);
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const puffTexture = () => puffTex || (puffTex = radialTexture([[0, 'rgba(255,255,255,1)'], [0.45, 'rgba(255,255,255,0.75)'], [1, 'rgba(255,255,255,0)']]));
+const glowTexture = () => glowTex || (glowTex = radialTexture([[0, 'rgba(255,240,190,1)'], [0.3, 'rgba(255,170,60,0.8)'], [1, 'rgba(255,90,20,0)']]));
+
+// Generated buildings get windows and floor lines in the shader (no textures): glass bays every 2.8 m,
+// floors every 3.4 m, each pane a slightly different tint. Roofs are a little darker.
+function facadeMaterial() {
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDlPos;\nvarying vec3 vDlN;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        #ifdef USE_INSTANCING
+          vDlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vDlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        #endif
+        vDlN = objectNormal;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDlPos;\nvarying vec3 vDlN;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float side = 1.0 - step(0.5, abs(vDlN.y));
+        vec2 fp = vec2(abs(vDlN.x) > 0.5 ? vDlPos.z : vDlPos.x, vDlPos.y);
+        vec2 cellId = floor(fp / vec2(2.8, 3.4));
+        vec2 cell = fract(fp / vec2(2.8, 3.4));
+        float win = step(0.16, cell.x) * step(cell.x, 0.84) * step(0.3, cell.y) * step(cell.y, 0.86) * step(1.0, vDlPos.y);
+        float rnd = fract(sin(dot(cellId, vec2(12.9898, 78.233))) * 43758.5453);
+        vec3 glass = mix(vec3(0.09, 0.13, 0.17), vec3(0.36, 0.46, 0.54), rnd * rnd);
+        diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * side);
+        diffuseColor.rgb *= 1.0 - step(cell.y, 0.05) * 0.18 * side;
+        diffuseColor.rgb *= mix(1.0, 0.82, 1.0 - side);`);
+  };
+  return m;
+}
+
+// Ground: soft large patches (mown / dry grass) instead of one flat colour.
+function groundMaterial() {
+  const m = new THREE.MeshLambertMaterial({ color: 0x8aa07a });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGp;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvGp = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGp;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float n = sin(vGp.x * 0.045) * sin(vGp.y * 0.038) + 0.5 * sin(vGp.x * 0.13 + vGp.y * 0.09) + 0.25 * sin(vGp.x * 0.41 - vGp.y * 0.37);
+        diffuseColor.rgb *= 0.9 + 0.08 * n;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.62, 0.42), smoothstep(0.6, 1.3, n) * 0.25);`);
+  };
+  return m;
+}
+
 export function buildWorld(scene, config) {
-  scene.background = new THREE.Color(0xbfd8ee);
-  scene.fog = new THREE.Fog(0xbfd8ee, 90, 320);
+  const real = config.realScene || null; // realistic Blender scene: { root, colliders, groundAt } (see realworld.js)
+  scene.background = skyTexture();
+  scene.fog = real ? new THREE.Fog(HORIZON, 260, 1500) : new THREE.Fog(HORIZON, 110, 360);
   const root = new THREE.Group(); // everything of this world lives here, so dispose() can remove it
   scene.add(root);
 
-  root.add(new THREE.HemisphereLight(0xdfefff, 0x6b7f5c, 0.9));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+  // Realistic scenes use PBR materials from Blender: they need more light than the flat-colored world.
+  root.add(new THREE.HemisphereLight(0xdfefff, 0x6b7f5c, real ? 1.7 : 0.9));
+  const sun = new THREE.DirectionalLight(0xffffff, real ? 2.6 : 1.4);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; // no acne on the large flat faces
   const sc = sun.shadow.camera;
   sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 160;
   root.add(sun, sun.target);
 
-  // Ground + grid (the grid gives a sense of speed without textures).
+  // Ground + grid (the grid gives a sense of speed without textures). A realistic scene brings its own ground.
+  if (real) root.add(real.root);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(config.bounds * 2 + 200, config.bounds * 2 + 200),
-    new THREE.MeshLambertMaterial({ color: 0x8aa07a }),
+    groundMaterial(),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
-  root.add(ground);
   const grid = new THREE.GridHelper(config.bounds * 2, config.bounds, 0x6b7f5c, 0x7a8f6a);
   grid.position.y = 0.02;
-  root.add(grid);
+  grid.material.transparent = true; grid.material.opacity = 0.28; grid.material.depthWrite = false; // a hint of scale, not a sheet of graph paper
+  if (!real) root.add(ground, grid);
 
   // Home pad at (0, 0, 0): disc + an "H".
   const padMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const pad = new THREE.Mesh(new THREE.CircleGeometry(3, 32), padMat);
   pad.rotation.x = -Math.PI / 2;
-  pad.position.y = 0.03;
+  pad.position.y = real ? 0.06 : 0.03;
   root.add(pad);
   const hMat = new THREE.MeshBasicMaterial({ color: 0xd9822b });
   const hGeo = new THREE.BoxGeometry(0.4, 0.02, 2);
   const hBar = new THREE.BoxGeometry(1.2, 0.02, 0.4);
   for (const [geo, x] of [[hGeo, -0.6], [hGeo, 0.6], [hBar, 0]]) {
     const m = new THREE.Mesh(geo, hMat);
-    m.position.set(x, 0.05, 0);
+    m.position.set(x, real ? 0.08 : 0.05, 0);
     root.add(m);
   }
 
   // Buildings and obstacles (instanced).
-  const bMesh = instancedBoxes(config.buildings, new THREE.MeshLambertMaterial({ color: 0xffffff }),
-    (b) => _c.setHSL(0.6, 0.1, 0.55 + b.shade * 0.25));
+  const bMesh = instancedBoxes(config.buildings, facadeMaterial(),
+    (b) => _c.setHSL(0.08 + b.shade * 0.5, 0.08 + b.shade * 0.06, 0.62 + b.shade * 0.2)); // warm concrete to cool panels
   const oMesh = instancedBoxes(config.obstacles, new THREE.MeshLambertMaterial({ color: 0xffffff }),
     () => _c.set(0xd9822b));
   root.add(bMesh, oMesh);
 
-  const colliders = [...config.buildings, ...config.obstacles].map((b) => ({
+  const colliders = [...config.buildings, ...config.obstacles, ...(config.trees || [])].map((b) => ({
     min: [b.x - b.w / 2, 0, b.z - b.d / 2],
     max: [b.x + b.w / 2, b.h, b.z + b.d / 2],
   }));
+  if (real) for (const c of real.colliders) colliders.push(c);
+  const groundAt = real && real.groundAt ? real.groundAt : () => 0;
+
+  // ---- mission objects (M1, M2, M3, M5). Everything is built once per world from the config. ----
+  const m = config.mission || {};
+  const flames = [];
+  const puffs = [];      // smoke sprites (animated in tick)
+  const fireMats = [];   // flame materials (thermal mode turns them white)
+  let personMat = null, fireMat = null, smokeMat = null, field = null, fieldAgri = null;
+  const markers = new THREE.Group();
+  root.add(markers);
+
+  // Forest: instanced trunks and crowns. Collision uses the tree box.
+  const trees = config.trees || [];
+  if (trees.length) {
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 1, 6), new THREE.MeshLambertMaterial({ color: 0x6b4a2f }), trees.length);
+    const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 9), new THREE.MeshLambertMaterial({ color: 0xffffff }), trees.length);
+    const crown2 = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 9), new THREE.MeshLambertMaterial({ color: 0xffffff }), trees.length);
+    trees.forEach((t, i) => {
+      const k = Math.abs(Math.sin(t.x * 12.9898 + t.z * 78.233)) % 1; // stable per-tree variation
+      _m.compose(_p.set(t.x, t.h * 0.2, t.z), _q.identity(), _s.set(1, t.h * 0.4, 1)); trunk.setMatrixAt(i, _m);
+      _m.compose(_p.set(t.x, t.h * 0.25 + t.h * 0.3, t.z), _q.setFromAxisAngle(_s.set(0, 1, 0), k * 6), _s.set(t.r, t.h * 0.6, t.r)); crown.setMatrixAt(i, _m);
+      _m.compose(_p.set(t.x, t.h * 0.62 + t.h * 0.19, t.z), _q.setFromAxisAngle(_s.set(0, 1, 0), k * 3), _s.set(t.r * 0.68, t.h * 0.38, t.r * 0.68)); crown2.setMatrixAt(i, _m);
+      crown.setColorAt(i, _c.setHSL(0.28 + k * 0.08, 0.38 + k * 0.15, 0.2 + k * 0.08));
+      crown2.setColorAt(i, _c.setHSL(0.28 + k * 0.08, 0.38 + k * 0.15, 0.25 + k * 0.08)); // lit tip, a shade lighter
+    });
+    for (const mesh of [trunk, crown, crown2]) { mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; root.add(mesh); }
+  }
+  // Solid blocks with a base height (bridge deck and piers, mountain core). `hidden` ones only collide.
+  for (const b of config.solids || []) {
+    colliders.push({ min: [b.x - b.w / 2, b.y0, b.z - b.d / 2], max: [b.x + b.w / 2, b.y0 + b.h, b.z + b.d / 2] });
+    if (b.hidden) continue;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(0.6, 0.05, 0.5 + (b.shade || 0) * 0.2) }));
+    mesh.position.set(b.x, b.y0 + b.h / 2, b.z); mesh.castShadow = mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+  const flat = (geo, color, x, y, z) => { // a flat shape on the ground
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+    mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y, z); mesh.receiveShadow = true; root.add(mesh); return mesh;
+  };
+  for (const l of m.landmarks || []) {
+    if (l.kind === 'peak') {
+      const body = new THREE.Mesh(new THREE.ConeGeometry(l.r, l.h, 16), new THREE.MeshLambertMaterial({ color: 0x7d746a }));
+      body.position.set(l.x, l.h / 2, l.z); body.castShadow = true;
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(l.r * 0.27, l.h * 0.27, 16), new THREE.MeshLambertMaterial({ color: 0xf2f4f6 }));
+      cap.position.set(l.x, l.h * 0.865, l.z);
+      root.add(body, cap);
+    } else if (l.kind === 'lake') flat(new THREE.CircleGeometry(l.r, 32), 0x3d86c6, l.x, 0.06, l.z);
+    else if (l.kind === 'pool') flat(new THREE.PlaneGeometry(l.w, l.d), 0x4fb3d9, l.x, 0.08, l.z);
+  }
+
+  // M1: victims, fire, smoke, safe point
+  if (m.victims) {
+    personMat = new THREE.MeshLambertMaterial({ color: 0xff7a2f });
+    const bodyGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.9, 6), headGeo = new THREE.SphereGeometry(0.2, 8, 6);
+    for (const v of m.victims) {
+      const body = new THREE.Mesh(bodyGeo, personMat), head = new THREE.Mesh(headGeo, personMat);
+      body.position.set(v.x, v.y + 0.45, v.z); head.position.set(v.x, v.y + 1.1, v.z);
+      body.castShadow = true;
+      root.add(body, head);
+    }
+    // Flames: additive outer cones with a yellow core and a ground glow, so fire reads as light, not as orange plastic.
+    fireMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+    fireMats.push(fireMat, coreMat);
+    const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    fireMats.push(glowMat);
+    for (const f of m.fires) {
+      flat(new THREE.CircleGeometry(f.r, 24), 0x241510, f.x, 0.05, f.z);
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + k, d = k === 0 ? 0 : f.r * (0.35 + 0.1 * (k % 3));
+        const hgt = 3 + (k % 3) * 1.1;
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(f.r * 0.2, hgt, 7, 1, true), fireMat);
+        flame.position.set(f.x + Math.sin(a) * d, hgt / 2, f.z - Math.cos(a) * d);
+        const core = new THREE.Mesh(new THREE.ConeGeometry(f.r * 0.1, hgt * 0.55, 6, 1, true), coreMat);
+        core.position.set(0, -hgt * 0.2, 0); flame.add(core);
+        root.add(flame); flames.push(flame);
+      }
+      const glow = new THREE.Sprite(glowMat); glow.scale.set(f.r * 3.2, f.r * 2.2, 1); glow.position.set(f.x, 1.4, f.z);
+      root.add(glow); flames.push(glow);
+    }
+    // Smoke: stacked soft puffs that rise and swell; the shared material keeps the thermal toggle simple.
+    smokeMat = new THREE.SpriteMaterial({ map: puffTexture(), color: 0x5b5d61, transparent: true, opacity: 0.55, depthWrite: false });
+    for (const s of m.smoke) {
+      const n = Math.max(6, Math.round(s.h / (s.r * 0.7)));
+      for (let k = 0; k < n; k++) {
+        const puff = new THREE.Sprite(smokeMat);
+        puff.userData = { x: s.x, z: s.z, r: s.r, h: s.h, phase: k / n, seed: k * 1.618 };
+        root.add(puff); puffs.push(puff);
+      }
+    }
+    const safe = flat(new THREE.CircleGeometry(m.safe.r, 24), 0x2ea66b, m.safe.x, 0.06, m.safe.z);
+    safe.material = new THREE.MeshBasicMaterial({ color: 0x2ea66b });
+  }
+
+  // M3: the field is a grid of cells. Colors show the dose (see setFieldDose).
+  if (m.field) {
+    const f = m.field, agri = makeAgri(m), c = f.cell;
+    flat(new THREE.PlaneGeometry(m.river.max[0] - m.river.min[0], m.river.max[1] - m.river.min[1]), 0x4a90d9, (m.river.min[0] + m.river.max[0]) / 2, 0.03, (m.river.min[1] + m.river.max[1]) / 2);
+    const geo = new THREE.PlaneGeometry(c * 0.94, c * 0.94); geo.rotateX(-Math.PI / 2);
+    field = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }), agri.nx * agri.nz);
+    field.frustumCulled = false;
+    for (let i = 0; i < agri.nx; i++) for (let j = 0; j < agri.nz; j++) {
+      const idx = i * agri.nz + j;
+      _m.compose(_p.set(f.min[0] + (i + 0.5) * c, 0.08, f.min[1] + (j + 0.5) * c), _q.identity(), _s.set(1, 1, 1));
+      field.setMatrixAt(idx, _m);
+      const cx = f.min[0] + (i + 0.5) * c, cz = f.min[1] + (j + 0.5) * c;
+      const zone = m.noSpray.find((r) => cx >= r.min[0] && cx <= r.max[0] && cz >= r.min[1] && cz <= r.max[1]);
+      field.setColorAt(idx, _c.setHex(zone ? (zone.kind === 'river' ? 0x4a90d9 : 0xc96a5b) : (j % 2 ? 0x4f8a3a : 0x5e9a46)));
+    }
+    field.instanceMatrix.needsUpdate = true; field.instanceColor.needsUpdate = true;
+    root.add(field);
+    fieldAgri = agri;
+  }
+
+  // M5: defects are flat marks on the surface, facing outward. They are not colliders.
+  for (const d of m.defects || []) {
+    const crack = d.kind === 'retak';
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: crack ? 0x1a1a1a : 0xb5532a, side: THREE.DoubleSide }));
+    mesh.scale.set(crack ? d.size : d.size * 0.7, crack ? d.size * 0.18 : d.size * 0.7, 1);
+    mesh.position.set(d.x, d.y, d.z);
+    mesh.rotation.y = Math.atan2(d.nx, d.nz);
+    if (crack) mesh.rotation.z = 0.5;
+    root.add(mesh);
+  }
 
   // Checkpoint rings: sensors only (no collider). One geometry, two shared materials.
   const ringGeo = new THREE.TorusGeometry(2.5, 0.14, 8, 32);
@@ -96,7 +302,7 @@ export function buildWorld(scene, config) {
   });
 
   // Mission markers (flat discs + a thin beacon) and no-fly zones (translucent red boxes).
-  if (config.mission) {
+  if (config.mission && config.mission.pickup) {
     const m = config.mission;
     const disc = (spot, color) => {
       const d = new THREE.Mesh(new THREE.CircleGeometry(spot.r, 32), new THREE.MeshBasicMaterial({ color }));
@@ -122,6 +328,13 @@ export function buildWorld(scene, config) {
   const MAX_EXTRA = 20;
   let extraCount = 0;
 
+  // M2 sets the sun angle (azimuth in the yaw convention = where the light comes from, elevation in degrees).
+  const sunDir = [40 / 80, 70 / 80, 25 / 80];
+  if (m.sun) {
+    const az = (m.sun.az * Math.PI) / 180, el = (m.sun.el * Math.PI) / 180;
+    sunDir[0] = Math.sin(az) * Math.cos(el); sunDir[1] = Math.sin(el); sunDir[2] = -Math.cos(az) * Math.cos(el);
+  }
+
   const world = {
     colliders,
     config,
@@ -129,18 +342,22 @@ export function buildWorld(scene, config) {
     addBox(x, z) {
       if (extraCount >= MAX_EXTRA || Math.abs(x) > config.bounds - 2 || Math.abs(z) > config.bounds - 2) return null;
       extraCount++;
+      const y0 = groundAt(x, z);
       const mesh = new THREE.Mesh(extraGeo, extraMat);
-      mesh.position.set(x, 1.5, z);
+      mesh.position.set(x, y0 + 1.5, z);
       mesh.castShadow = true;
       root.add(mesh);
-      colliders.push({ min: [x - 1, 0, z - 1], max: [x + 1, 3, z + 1] });
+      colliders.push({ min: [x - 1, y0, z - 1], max: [x + 1, y0 + 3, z + 1] });
       return { x, z, w: 2, d: 2, h: 3 };
     },
     dispose() {
       scene.remove(root);
       root.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
-        if (o.material) o.material.dispose();
+        for (const mat of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) {
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap']) if (mat[k]) mat[k].dispose();
+          mat.dispose();
+        }
         if (o.isInstancedMesh) o.dispose();
       });
     },
@@ -160,12 +377,57 @@ export function buildWorld(scene, config) {
         }
       }
     },
+    // Thermal mode: people and fire glow white-hot, smoke becomes thin. (The canvas also gets a CSS filter in main.js.)
+    setThermal(on) {
+      if (personMat) personMat.color.setHex(on ? 0xffffff : 0xff7a2f);
+      if (fireMat) { fireMats[0].color.setHex(on ? 0xffffff : 0xff6a1a); fireMats[1].color.setHex(on ? 0xffffff : 0xffd36a); }
+      if (smokeMat) smokeMat.opacity = on ? 0.12 : 0.55;
+    },
+    // A flag where the pilot pressed "tandai".
+    addMarker(x, y, z) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.5, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.03), new THREE.MeshBasicMaterial({ color: 0xd64545 }));
+      pole.position.set(x, y + 1.25, z); flag.position.set(x + 0.35, y + 2.2, z);
+      markers.add(pole, flag);
+    },
+    // M3: repaint the cells from the dose state (call when the numbers changed, about 2 times a second).
+    setFieldDose(agri) {
+      if (!field) return;
+      const f = config.mission.field;
+      for (let i = 0; i < agri.nx; i++) for (let j = 0; j < agri.nz; j++) {
+        const idx = i * agri.nz + j;
+        if (agri.kind[idx] === 1) continue;
+        const st = cellState(agri, idx);
+        field.setColorAt(idx, _c.setHex(st === 0 ? (j % 2 ? 0x4f8a3a : 0x5e9a46) : st === 1 ? 0x9fd3ee : st === 2 ? 0x2fd0a0 : 0x6a4fc8));
+      }
+      field.instanceColor.needsUpdate = true;
+    },
+    // Flames flicker. Called once per drawn frame; allocates nothing.
+    tick(t) {
+      for (let i = 0; i < flames.length; i++) {
+        const f = flames[i];
+        if (f.isSprite) { const k = 1 + 0.12 * Math.sin(t * 9 + i); f.material.opacity = 0.75 + 0.2 * Math.sin(t * 11 + i * 2.1); f.scale.x = f.scale.x / (f.userData.k || 1) * k; f.userData.k = k; }
+        else f.scale.y = 1 + 0.22 * Math.sin(t * 7 + i * 1.7) + 0.08 * Math.sin(t * 17 + i);
+      }
+      for (let i = 0; i < puffs.length; i++) { // each puff climbs its column and loops; it grows and drifts as it rises
+        const p = puffs[i], u = p.userData, q = (u.phase + t * 0.025) % 1;
+        const sz = u.r * (1.4 + q * 1.6);
+        p.position.set(u.x + Math.sin(u.seed + t * 0.3) * u.r * 0.35 * q, 0.6 + q * u.h, u.z + Math.cos(u.seed * 1.3 + t * 0.27) * u.r * 0.35 * q);
+        p.scale.set(sz, sz, 1);
+      }
+    },
+    // Sun angle (dataset export varies it). Azimuth in the yaw convention, elevation in degrees.
+    setSun(az, el) {
+      const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
+      sunDir[0] = Math.sin(a) * Math.cos(e); sunDir[1] = Math.sin(e); sunDir[2] = -Math.cos(a) * Math.cos(e);
+    },
     // Shadows on/off (graphics setting). Only the sun casts shadows, so this is one flag.
     setShadows(on) { sun.castShadow = on; },
     // Keeps the limited shadow area centered on the drone.
     followLight(px, pz) {
-      sun.position.set(px + 40, 70, pz + 25);
-      sun.target.position.set(px, 0, pz);
+      const gy = real ? groundAt(px, pz) : 0;
+      sun.position.set(px + sunDir[0] * 80, gy + sunDir[1] * 80, pz + sunDir[2] * 80);
+      sun.target.position.set(px, gy, pz);
     },
   };
   return world;

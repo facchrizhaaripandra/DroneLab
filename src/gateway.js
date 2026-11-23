@@ -1,6 +1,7 @@
 // Gateway client (Orang 3). The simulator only talks to the gateway, never to the AI service.
 // If the gateway is not reachable, a local stub takes over so missions still work (provisional score).
 import { MISSIONS, scoreFromEvents } from './missions.js';
+import { inspectionReport } from './scoring.js';
 import { makeMissionConfig } from './worldconfig.js';
 
 const TIMEOUT_MS = 1500;      // gateway calls
@@ -10,15 +11,16 @@ const LLM_TIMEOUT_MS = 10000; // command may call the LLM
 // Offline stand-in. Same shape as the real API: it scores from the event log, never from client numbers.
 export function createStubGateway() {
   const runs = new Map();
-  let n = 0;
+  let n = 0, lastId = null;
   return {
     name: 'stub',
-    async missions() { return MISSIONS.map(({ id, title, par_time_s }) => ({ id, title, par_time_s, variants: ['kota'] })); },
-    async startRun({ mission_id }) {
+    async missions() { return MISSIONS.map(({ id, title, par_time_s, variants }) => ({ id, title, par_time_s, variants: variants || ['kota'] })); },
+    async startRun({ mission_id, variant }) {
       const seed = 42;
       const run_id = `local_${++n}`;
-      const config = makeMissionConfig(mission_id, seed);
+      const config = makeMissionConfig(mission_id, seed, variant === 'kota' ? undefined : variant);
       runs.set(run_id, { mission_id, config, log: [] });
+      lastId = run_id;
       return { api_version: '1', run_id, seed, config };
     },
     async event(run_id, body) { runs.get(run_id)?.log.push(body); return { ok: true }; },
@@ -26,7 +28,9 @@ export function createStubGateway() {
       const r = runs.get(run_id);
       return { api_version: '1', ...scoreFromEvents(r.mission_id, r.config, r.log, body) };
     },
-    telemetry() {},
+    // The telemetry frames are part of the log: the scorers need them (coverage, spray dose, video).
+    telemetry(frame) { const r = runs.get(lastId); if (r) r.log.push({ ...frame, type: 'sample' }); },
+    async report(run_id) { const r = runs.get(run_id); return r ? inspectionReport(r.config, r.log) : null; },
   };
 }
 
@@ -98,7 +102,13 @@ export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocket
     },
     // 10 Hz telemetry over WebSocket (real gateway only).
     telemetry(frame) {
+      if (current !== 'real') return stub.telemetry(frame);
       if (ws && ws.readyState === 1) ws.send(JSON.stringify(frame));
+    },
+    // Inspection report (M5). null when it is not available: the caller builds one from its own log.
+    async report(run_id) {
+      if (current !== 'real') return stub.report(run_id);
+      try { return await fetchJson(fetchImpl, `${baseUrl}/api/v1/runs/${run_id}/report`); } catch { return null; }
     },
     get official() { return current === 'real'; },
   };

@@ -17,12 +17,17 @@ import { createEditor } from './editor.js';
 import { Commander } from './commander.js';
 import { parseNatural } from './nlparse.js';
 import { canSee } from './vision.js';
-import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec, settingsMenuSpec, keyboardSpec, controllerSpec, stickTestSpec, graphicsSpec } from './screens.js';
+import { swathWidth } from './agri.js';
+import { inspectionReport } from './scoring.js';
+import { mainMenuSpec, missionSpec, resultSpec, pauseSpec, helpSpec, settingsMenuSpec, keyboardSpec, controllerSpec, stickTestSpec, graphicsSpec, sceneSpec } from './screens.js';
+import { loadSceneIndex, loadScene, prepareScene, realSceneConfig } from './realworld.js';
 import { loadSettings, saveSettings, sanitize, remapKey, applyPreset, markCustom } from './settings.js';
 import { DEFAULT_KEYS } from './bindings.js';
 import { AdaptiveQuality } from './quality.js';
 import { MISSIONS, getMission, MissionRun } from './missions.js';
 import { Battery } from './battery.js';
+import { AabbPhysics, createPhysics } from './physics.js';
+import { DroneDamage } from './damage.js';
 import { createGateway } from './gateway.js';
 import { events } from './events.js';
 
@@ -38,6 +43,9 @@ aq.setTarget(settings.graphics.targetFps);
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // soft shadow edges instead of jagged ones
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // filmic highlights: the sky and white roofs no longer clip
+renderer.toneMappingExposure = 1.05;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -56,8 +64,11 @@ layout();
 // ---- objects that live for the whole app ----
 let config = normalizeConfig(makeMissionConfig('freeroam', 42));
 let world = buildWorld(scene, config);
+let physics = new AabbPhysics();   // replaced by Rapier as soon as it has loaded (see below)
+physics.setStatic(world.colliders);
 let sim = new Flight();
 const drone = createDrone(scene);
+newSim();
 const chase = new FollowCamera(camera);
 const input = createInput();
 const autopilot = new Autopilot();
@@ -85,7 +96,7 @@ applyGraphics();
 // Script runner: it drives the drone through applyAction() like every other input source.
 const commander = new Commander({
   autopilot,
-  detect: (label) => canSee(label, sim.pos, sim.yaw, config, session ? session.extraBoxes : []),
+  detect: (label) => canSee(label, sim.pos, sim.yaw, config, session ? session.extraBoxes : [], { pitch: drone.gimbal, thermal }),
   battery: () => (session ? session.battery.level : 100),
   setGimbal: (deg) => drone.setGimbalPitch(deg),
   act(name) {
@@ -96,10 +107,53 @@ const commander = new Commander({
       if (name === 'drop' && !run.carrying) return 'drop: tidak sedang membawa paket';
       return run.pickupDrop(sim);
     }
-    toast(`${actionLabel(name)} (belum terhubung)`);
-    return `${name}: belum terhubung ke sistem misi`;
+    const msg = doAction(name, arg);
+    return msg ? `${name}: ${msg}` : null;
   },
 });
+// ---- camera and mission actions (keys, controller and scripts all end up here) ----
+let thermal = false;
+function setThermal(on) {
+  thermal = on;
+  world.setThermal(on);
+  // Fake thermal camera: grey, high contrast, warm tint. (A filter on the canvas, not a real heat model.)
+  renderer.domElement.style.filter = on ? 'grayscale(1) contrast(1.5) sepia(1) hue-rotate(-25deg) saturate(3.5)' : '';
+}
+function doAction(name, arg) {
+  const run = session && session.run;
+  if (name === 'thermal') { setThermal(!thermal); return thermal ? 'Mode panas nyala' : 'Mode panas mati'; }
+  if (name === 'photo') {
+    if (!run) {
+      if (sim.mode !== 'flying') return 'terbang dulu';
+      if (!drone.cameraOk) return 'kamera pecah';
+      hud.flash(); return 'Foto diambil (freeroam: tidak dinilai)';
+    }
+    const msg = run.photo(sim, thermal);
+    if (msg && msg.startsWith('Foto #')) hud.flash();
+    return msg;
+  }
+  if (name === 'record') {
+    if (!run) return 'rekam hanya dinilai di misi fotografi';
+    if (arg === 'start' && run.recording) return 'sudah merekam';       // record("start") from a script must not stop a running clip
+    if (arg === 'stop' && !run.recording) return 'tidak sedang merekam';
+    return run.toggleRecord(sim);
+  }
+  if (name === 'mark') {
+    if (!run) return 'tandai hanya dipakai di misi pencarian dan inspeksi';
+    const msg = run.mark(sim, thermal);
+    if (msg && !msg.startsWith('Tandai:') && !msg.startsWith('Tandai hanya')) {
+      world.addMarker(sim.pos[0], 0, sim.pos[2]);
+      session.marks.push({ x: sim.pos[0], z: sim.pos[2] });
+    }
+    return msg;
+  }
+  if (name === 'spray') {
+    if (!run) return 'semprot hanya dipakai di misi penyiraman';
+    return run.setSpray(arg === 'on' || arg === true, sim);
+  }
+  return null;
+}
+
 const editor = createEditor(stage, {
   onOpen: () => input.releaseAll(),
   onClose: () => {},
@@ -142,6 +196,7 @@ const assist = [              // freeroam side panel toggles (not connected to t
   { label: 'Deteksi objek', on: false }, { label: 'Jalur A*', on: false },
   { label: 'Auto-hindari', on: false }, { label: 'Auto-pilot', on: false },
 ];
+let crashTimer = 0;           // freeroam: a wrecked drone is replaced after a few seconds
 let seenHits = 0;             // collisions already answered with a rumble
 let hintContext = 'latihan', hintDevice = '', hintType = '';
 let flightTime = 0;
@@ -155,6 +210,29 @@ function refreshGatewayLabel() {
 gateway.check().then(refreshGatewayLabel);
 setInterval(() => gateway.check().then(refreshGatewayLabel), 10000); // the gateway or the AI may come and go
 
+// A fresh drone: full health, damage events show up as toasts and on the model.
+function newSim() {
+  sim = new Flight();
+  sim.damage = new DroneDamage();
+  sim.wind = config.wind || null;
+  const real = config.realScene; // realistic Blender scene: uneven ground and its own map limits
+  sim.ground = real ? real.groundAt : null;
+  sim.limits = real ? real.limits : null;
+  sim.onDamage = (changes) => {
+    drone.setDamage(sim.damage);
+    for (const c of changes) toast(damageText(c));
+  };
+  drone.setDamage(sim.damage);
+}
+const PART_ID = ['kiri-depan', 'kanan-depan', 'kiri-belakang', 'kanan-belakang'];
+function damageText(c) {
+  const bad = c.state === 'broken';
+  if (c.part === 'rotor') return `Baling-baling ${PART_ID[c.index]} ${bad ? 'patah!' : 'rusak'}`;
+  if (c.part === 'camera') return bad ? 'Kamera pecah: PIP mati' : 'Kamera retak';
+  if (c.part === 'battery') return bad ? 'Baterai bocor parah!' : 'Baterai rusak: boros';
+  return bad ? 'Bodi hancur!' : 'Bodi retak';
+}
+
 // Replace the world, the drone state and the HUD map in one place (used by every mission start).
 function loadWorld(cfg) {
   world.dispose();
@@ -163,13 +241,22 @@ function loadWorld(cfg) {
   world.setShadows(aq.effective(settings.graphics).shadows);
   aq.holdFor(4); // a new world compiles shaders and warms caches: do not judge FPS yet
   seenHits = 0;
-  sim = new Flight();
+  physics.setStatic(world.colliders);
+  newSim();
   commander.stop('Dunia diganti');
   autopilot.cancel();
   chase.ready = false;
   flightTime = 0;
   panelOpen = false;
   hud.setWorld(config);
+  chase.ground = config.realScene ? config.realScene.groundAt : null;
+  camera.far = config.realScene ? 2500 : 500; // the mountain scene is 1 km wide
+  camera.updateProjectionMatrix();
+  drone.pipCamera.far = config.realScene ? 1200 : 400;
+  drone.pipCamera.updateProjectionMatrix();
+  setThermal(false);
+  drone.setSpray(false);
+  drone.setGimbalPitch(-10);
 }
 
 // ---- screens ----
@@ -181,9 +268,10 @@ function showMain() {
     quickStart: () => startMission(getMission('latihan_terbang')),
     missions: showMissions,
     freeroam: startFreeroam,
+    scenes: showScenes,
     editor: () => { startFreeroam(); editor.open(); },
     settings: showSettings,
-    help: () => menu.open(helpSpec({ back: showMain })),
+    help: () => menu.open(helpSpec({ back: showMain }, settings.keyboard.keys)),
   }));
 }
 
@@ -273,11 +361,13 @@ function enterPlay(context, title) {
   hud.setPanel(false, assist);
 }
 
-async function startMission(def) {
+const HINT_CONTEXT = { m4_delivery: 'delivery', m1_sar: 'sar', m2_foto: 'foto', m3_agri: 'agri', m5_inspeksi: 'inspeksi' };
+async function startMission(def, variant) {
+  variant = variant || (def.variants && def.variants[0]) || undefined;
   menu.open({ title: 'Memuat misi...', subtitle: def.title, items: [] });
   let cfg, runId = null;
   if (def.tier === 'utama') {
-    const r = await gateway.startRun({ mission_id: def.id, variant: 'kota', player: 'pemain' });
+    const r = await gateway.startRun({ mission_id: def.id, variant: variant || 'kota', player: 'pemain' });
     cfg = r.config; runId = r.run_id;
     refreshGatewayLabel();
   } else {
@@ -285,14 +375,42 @@ async function startMission(def) {
   }
   loadWorld(cfg);
   const run = new MissionRun(def.id, config, (type, e) => { if (runId) gateway.event(runId, e); });
-  session = { kind: 'mission', def, run, runId, battery: new Battery(config.battery), extraBoxes: [] };
-  enterPlay(def.id === 'm4_delivery' ? 'delivery' : 'latihan', def.title);
+  run.onNotice = toast;
+  session = { kind: 'mission', def, variant, run, runId, battery: new Battery(config.battery), extraBoxes: [], marks: [] };
+  enterPlay(HINT_CONTEXT[def.id] || 'latihan', variant && def.variants && def.variants.length > 1 ? `${def.title} (${variant})` : def.title);
 }
 
 function startFreeroam() {
   loadWorld(makeMissionConfig('freeroam', 42));
-  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0, extraBoxes: [] };
+  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0, extraBoxes: [], marks: [] };
   enterPlay('freeroam', 'Freeroam');
+}
+
+// ---- realistic Blender scenes (freeroam) ----
+async function showScenes() {
+  menu.open({ title: 'Peta realistis', subtitle: 'Memuat daftar...', items: [] });
+  const list = await loadSceneIndex();
+  menu.open(sceneSpec(list, { start: startRealScene, back: showMain }));
+}
+
+async function startRealScene(entry) {
+  const title = entry.title;
+  menu.open({ title: 'Memuat peta...', subtitle: `${title} (${entry.glb_mb} MB)`, items: [] });
+  let prepared;
+  try {
+    const loaded = await loadScene(entry.id, (p) => {
+      const sub = document.querySelector('#stage .card .sub');
+      if (sub) sub.textContent = `${title}: ${Math.round(p * 100)}%`;
+    });
+    prepared = prepareScene(loaded);
+  } catch (err) {
+    console.warn('Scene failed to load:', err);
+    menu.open({ title: 'Peta gagal dimuat', subtitle: `${title}: ${err && err.message ? err.message : err}`, items: [{ label: 'Kembali', action: showScenes }], onBack: showScenes });
+    return;
+  }
+  loadWorld(realSceneConfig(makeMissionConfig('freeroam', 42), prepared));
+  session = { kind: 'freeroam', def: null, run: null, runId: null, battery: new Battery(config.battery), extra: 0, extraBoxes: [], marks: [], scene: entry };
+  enterPlay('freeroam', title);
 }
 
 function pauseGame() {
@@ -300,14 +418,15 @@ function pauseGame() {
   state = 'paused'; setMenuMode(true);
   menu.open(pauseSpec({
     resume: () => { menu.close(); setMenuMode(false); state = 'play'; last = performance.now(); },
-    retry: () => (session.kind === 'mission' ? startMission(session.def) : startFreeroam()),
+    retry: () => (session.kind === 'mission' ? startMission(session.def, session.variant) : session.scene ? startRealScene(session.scene) : startFreeroam()),
+    finish: session.kind === 'mission' && session.def.tier === 'utama' ? () => { session.run.endNow(); endMission(); } : null,
     main: showMain,
   }));
 }
 
 async function endMission() {
   editor.close(); commander.stop('Misi berakhir');
-  state = 'result'; setMenuMode(true);
+  state = 'result'; setMenuMode(true); hud.setVisible(false); // the score card stands alone (no empty camera frame behind it)
   const run = session.run, level = Math.round(session.battery.level);
   const fin = { t_ms: run.tMs, battery: level, reason: run.reason };
   let res = null, official = false;
@@ -317,8 +436,13 @@ async function endMission() {
     if (res.offline) res = null;
   }
   if (!res) res = run.result(level); // practice missions, or a gateway that dropped out: provisional score
+  if (session.def.id === 'm5_inspeksi' && !res.report) { // the inspection report: from the gateway when it has one, else from our own log
+    const remote = session.runId && official ? await gateway.report(session.runId) : null;
+    res = { ...res, report: remote || inspectionReport(config, run.log) };
+  }
+  drone.setSpray(false); setThermal(false);
   menu.open(resultSpec(session.def, run.reason, res, official, {
-    retry: () => startMission(session.def),
+    retry: () => startMission(session.def, session.variant),
     missions: showMissions,
     main: showMain,
   }));
@@ -328,7 +452,7 @@ async function endMission() {
 events.on('input', (e) => {
   if (state !== 'play') return;
   if (e.name === 'takeoff_land') {
-    if (sim.mode === 'landed') { sim.takeoff(5); toast('Takeoff 5 m'); }
+    if (sim.mode === 'landed') toast(sim.takeoff(5) ? 'Takeoff 5 m' : 'Drone terlalu rusak untuk lepas landas');
     else { autopilot.cancel(); sim.land(); toast('Mendarat'); }
   } else if (e.name === 'home') {
     toast(autopilot.start(sim) ? 'Return home' : 'Return home: drone harus sedang terbang');
@@ -343,7 +467,7 @@ events.on('input', (e) => {
     if (session.kind !== 'freeroam') { toast('Tambah objek hanya di freeroam'); return; }
     const yaw = (sim.yaw * Math.PI) / 180;
     const b = world.addBox(sim.pos[0] + Math.sin(yaw) * 8, sim.pos[2] - Math.cos(yaw) * 8);
-    if (b) { hud.addMapBox(b); session.extra++; session.extraBoxes.push(b); toast('Objek ditambah'); } else toast('Batas objek tercapai');
+    if (b) { physics.add(world.colliders[world.colliders.length - 1]); hud.addMapBox(b); session.extra++; session.extraBoxes.push(b); toast('Objek ditambah'); } else toast('Batas objek tercapai');
   } else if (e.name === 'panel_ai') {
     if (session.kind !== 'freeroam') { toast('Panel hanya di freeroam'); return; }
     panelOpen = !panelOpen;
@@ -351,7 +475,11 @@ events.on('input', (e) => {
   } else if (e.name === 'command') {
     if (editor.isOpen) editor.close(); else editor.open();
   } else if (e.name === 'spray') {
-    toast(`${actionLabel('spray')} ${e.on ? 'ON' : 'OFF'} (belum terhubung)`);
+    const msg = doAction('spray', e.on);
+    if (msg) toast(msg);
+  } else if (['photo', 'record', 'mark', 'thermal'].includes(e.name)) {
+    const msg = doAction(e.name);
+    if (msg) toast(msg);
   } else {
     toast(`${actionLabel(e.name)} (belum terhubung)`);
   }
@@ -363,7 +491,16 @@ window.addEventListener('keydown', (e) => { // panel toggles 1-4 (keyboard only 
   hud.setPanel(true, assist);
 });
 
-showMain();
+// ?export=1 opens the dataset exporter instead of the menu (exporter.js is loaded only then).
+let exporting = false;
+if (new URLSearchParams(location.search).get('export') === '1') {
+  import('./exporter.js').then((m) => m.openExporter({
+    stage, renderer, scene, drone,
+    hud, loadWorld, getWorld: () => world, getConfig: () => config,
+    setExporting: (on) => { exporting = on; },
+    restore() { exporting = false; setThermal(false); drone.group.visible = true; layout(); },
+  }));
+} else showMain();
 
 // ---- timing and FPS (no allocations inside the loop, except the 10 Hz HUD/telemetry tick) ----
 let last = performance.now();
@@ -377,6 +514,7 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   const raw = dt;
+  if (exporting) return; // the exporter renders by itself
   if (dt > 0.1) dt = 0.1; // tab was hidden or a long stall: do not simulate a huge step
   fpsTime += raw;
   hudTime += raw;
@@ -394,15 +532,19 @@ function frame(now) {
       else if (commander.state === 'paused') { /* step mode: hold still until the next Langkah */ }
       else if (autopilot.active) autopilot.step(sim);
       else sim.applyAction(input.action); // single entry point for every input source
-      sim.step(STEP, world.colliders);
+      sim.step(STEP, physics);
       world.update(sim.pos);
       if (sim.collisionCount > seenHits) { seenHits = sim.collisionCount; input.rumble(0.7, 150); }
       const airborne = sim.mode !== 'landed';
       const run = session.run;
       if (session.kind === 'mission') {
-        session.battery.step(STEP, airborne, Math.hypot(sim.vel[0], sim.vel[1], sim.vel[2]), run.payloadKg);
+        session.battery.step(STEP, airborne, Math.hypot(sim.vel[0], sim.vel[1], sim.vel[2]), run.payloadKg, sim.damage.fx.drainMul);
         run.step(STEP, sim, session.battery.level, world.passedCount, world.rings.length);
       } else if (airborne) flightTime += STEP;
+      if (session.kind === 'freeroam' && sim.mode === 'crashed') {
+        crashTimer += STEP;
+        if (crashTimer > 3) { crashTimer = 0; seenHits = 0; newSim(); commander.stop('Drone hancur'); toast('Drone baru siap di pad'); }
+      }
       acc -= STEP;
       n++;
       if (run && run.done) { endMission(); break; }
@@ -419,19 +561,24 @@ function frame(now) {
   // Render with interpolation between the last two physics states.
   const alpha = acc / STEP;
   drone.update(sim, alpha, drawDt);
-  chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, drawDt);
+  if (state === 'menu') orbitCamera(now / 1000); // main menu backdrop: a slow orbit around the drone
+  else chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, drawDt);
   world.followLight(drone.group.position.x, drone.group.position.z);
+  world.tick(now / 1000);
   renderer.render(scene, camera);
 
-  // Second pass for the PIP drone camera: same scene, small scissored viewport.
-  renderer.shadowMap.autoUpdate = false; // the shadow map from the main pass is still valid: skip a second shadow pass
-  renderer.setScissorTest(true);
-  renderer.setViewport(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
-  renderer.setScissor(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
-  renderer.render(scene, drone.pipCamera);
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, W, H);
-  renderer.shadowMap.autoUpdate = true;
+  // Second pass for the PIP drone camera: same scene, small scissored viewport. Only while the HUD is shown.
+  if (state === 'play' || state === 'paused') {
+    renderer.shadowMap.autoUpdate = false; // the shadow map from the main pass is still valid: skip a second shadow pass
+    renderer.setScissorTest(true);
+    renderer.setViewport(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
+    renderer.setScissor(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
+    if (drone.cameraOk) renderer.render(scene, drone.pipCamera);
+    else { renderer.setClearColor(0x050505, 1); renderer.clear(); renderer.setClearColor(0x000000, 1); } // broken camera: dead feed
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, W, H);
+    renderer.shadowMap.autoUpdate = true;
+  }
 
   // FPS over 0.5 s windows; HUD text refreshes 10 times per second.
   frames++;
@@ -464,19 +611,49 @@ function updateHud(now) {
   const tel = sim.telemetry();
   const level = session.battery.level;
   hud.update({
-    tel, fps, ms: msAvg, quality: aq.level ? aq.name : '', battery: level,
+    tel, rotors: sim.damage.rotors, fps, ms: msAvg, quality: aq.level ? aq.name : '', battery: level,
     flightTime: run ? run.t : flightTime,
     collisions: sim.collisionCount,
     goalText: run ? run.text || 'Lepas landas (tahan X / A)' : `Terbang bebas · objek ditambah: ${session.extra}`,
     progress: run ? run.progress : 0,
     rings: world.rings,
+    marks: session.marks,
     deviceLabel: input.device === 'gamepad' ? `Controller (${input.padType === 'ps' ? 'PlayStation' : 'Xbox'})` : 'Keyboard',
   }, now);
-  if (state === 'play' && session.runId) { // official runs: 10 Hz telemetry to the gateway
-    gateway.telemetry({
-      t_ms: run.tMs, pos: tel.pos, vel: tel.vel, yaw: tel.yaw, roll: tel.roll, pitch: tel.pitch,
-      battery: Math.round(level), payload_kg: run.payloadKg, spraying: false, collision: tel.collision,
-    });
+  hud.setBadges({ rec: run && run.recording, thermal, spray: run && run.spraying });
+  if (run) {
+    if (run.spraying && sim.mode !== 'flying') run.setSpray(false, sim); // landed or crashed: the nozzle closes
+    drone.setSpray(run.spraying);
+    if (run.spraying) drone.setSprayWidth(swathWidth(sim.pos[1]));
+    if (run.agri && run.agri.total !== lastDose && now - lastPaint > 500) { lastDose = run.agri.total; lastPaint = now; world.setFieldDose(run.agri); }
+  }
+  if (state === 'play' && run) { // 10 Hz telemetry frame: to the gateway (and the local log for the provisional score)
+    const frame = {
+      t_ms: run.tMs, pos: tel.pos.slice(), vel: tel.vel.slice(), yaw: tel.yaw, roll: tel.roll, pitch: tel.pitch, gimbal: drone.gimbal,
+      battery: Math.round(level), payload_kg: run.payloadKg, spraying: run.spraying, collision: tel.collision,
+    };
+    run.sample(frame);
+    if (session.runId) gateway.telemetry(frame);
   }
 }
+let lastDose = -1, lastPaint = 0;
+
+// Menu backdrop camera: circles the parked drone low and slow, so the title sits over a living scene.
+const _orbitLook = new THREE.Vector3();
+function orbitCamera(t) {
+  const p = drone.group.position, a = t * 0.07 + 0.6;
+  const r = 7.5 + Math.sin(t * 0.13) * 1.2;
+  camera.up.set(0, 1, 0);
+  camera.position.set(p.x + Math.cos(a) * r, p.y + 2.4 + Math.sin(t * 0.21) * 0.6, p.z + Math.sin(a) * r);
+  _orbitLook.set(p.x - Math.sin(a) * 1.6, p.y + 0.9, p.z + Math.cos(a) * 1.6); // aim a bit to the side: drone right of the menu
+  camera.lookAt(_orbitLook);
+  chase.ready = false; // snap back to the chase view when play starts
+}
 requestAnimationFrame(frame);
+
+// Rapier loads in the background (WASM); until then, and if it fails, the AABB physics keeps working.
+createPhysics().then((p) => {
+  p.setStatic(world.colliders);
+  physics = p;
+  console.info(`Physics: ${p.kind}`);
+});

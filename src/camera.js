@@ -20,6 +20,7 @@ export class FollowCamera {
     this.look = new THREE.Vector3();
     this.ready = false;
     this.modeIndex = 0;
+    this.ground = null; // (x, z) -> ground height in realistic scenes; null = flat ground at 0
   }
 
   get mode() { return CAMERA_MODES[this.modeIndex]; }
@@ -70,7 +71,8 @@ export class FollowCamera {
     this.look.y += (target.y + 0.4 - this.look.y) * k;
     this.look.z += (target.z - this.look.z) * k;
 
-    this.camera.position.set(this.pos.x, Math.max(this.pos.y, 0.6), this.pos.z); // never below ground
+    const floor = (this.ground ? this.ground(this.pos.x, this.pos.z) : 0) + 0.6;
+    this.camera.position.set(this.pos.x, Math.max(this.pos.y, floor), this.pos.z); // never below ground
     this.camera.lookAt(this.look);
   }
 }

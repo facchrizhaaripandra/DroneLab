@@ -185,3 +185,19 @@ test('gateway: unreachable -> stub works end to end; reachable -> real; failure 
   await up.event('r_1', { type: 'photo' });          // must not throw
   assert.deepEqual(await up.finish('r_1', {}), { offline: true });
 });
+
+test('a crashed drone ends the run with reason crashed', () => {
+  const run = new MissionRun('latihan_terbang', normalizeConfig(makeMissionConfig('latihan_terbang', 1)), () => {});
+  run.step(1 / 60, fake(), 100, 0, 0);
+  assert.equal(run.done, false);
+  run.step(1 / 60, fake({ mode: 'crashed' }), 100, 0, 0);
+  assert.equal(run.done, true);
+  assert.equal(run.reason, 'crashed');
+});
+
+test('battery drainMul speeds up the drain (damaged battery leaks)', () => {
+  const a = new Battery(), b = new Battery();
+  a.step(10, true, 0, 0, 1);
+  b.step(10, true, 0, 0, 2);
+  assert.ok(Math.abs((100 - b.level) - 2 * (100 - a.level)) < 1e-9);
+});

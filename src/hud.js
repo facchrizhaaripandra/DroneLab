@@ -13,6 +13,11 @@ export const actionLabel = (name) => ACTION_LABELS[name] || name;
 
 const MAP = { size: 148, scale: 0.67 }; // px per meter on the minimap (world is 200 m wide)
 
+// Flight modes as the pilot reads them (the sim keeps its English ids).
+const MODE_LABEL = { landed: 'Di darat', takeoff: 'Lepas landas', flying: 'Terbang', landing: 'Mendarat', crashed: 'Jatuh' };
+// Minimap palette (dark, matches the glass panels).
+const MM = { bg: '#13222d', grid: 'rgba(190,220,240,0.06)', block: '#4f6575', obstacle: '#ff8a1f', tree: '#2f6b4a', text: '#8fa3b1' };
+
 function fmtTime(sec) {
   const s = Math.floor(sec);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -24,7 +29,8 @@ export function createHud(root, config) {
     <div id="telem" class="panel"><h2>Telemetri</h2>
       <div class="row mono"><span>ALT</span><span id="t-alt"></span></div>
       <div class="row mono"><span>SPD</span><span id="t-spd"></span></div>
-      <div class="row mono"><span>BAT</span><span id="t-bat"></span></div></div>
+      <div class="row mono"><span>BAT</span><span id="t-bat"></span></div>
+      <div class="row"><span>Baling</span><span id="t-dmg" class="dmg"></span></div></div>
     <div id="goal" class="panel"><h1 id="g-title">Latihan terbang</h1>
       <div class="big" id="g-main"></div><div class="bar"><i id="g-bar"></i></div>
       <div class="meta mono"><span id="g-time"></span><span id="g-hit"></span><span id="g-mode"></span></div></div>
@@ -37,15 +43,17 @@ export function createHud(root, config) {
     <div id="pip" class="panel"><div class="hole"></div><div class="tag">Kamera drone</div></div>
     <div id="side" class="panel"><h2>Asisten AI</h2><div id="side-rows"></div><p class="muted">Belum terhubung ke server AI (Fase 4). Tombol 1-4 mengganti pilihan.</p></div>
     <div id="hint" class="panel"></div>
+    <div id="badges"></div>
+    <div id="flash"></div>
     <div id="toast" class="panel"></div>
     <div id="hold"><b>Tahan</b></div>
     <pre id="dbg" class="panel mono"></pre>`;
   const $ = (id) => root.querySelector('#' + id);
   const el = {
-    alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), main: $('g-main'), bar: $('g-bar'),
+    alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), dmg: $('t-dmg'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
     title: $('g-title'), gw: $('s-gw'), ai: $('s-ai'), side: $('side'), sideRows: $('side-rows'),
-    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'),
+    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), flash: $('flash'),
   };
 
   // Minimap: static layer (buildings, obstacles, pad, mission spots) drawn once per world; dynamic layer each update.
@@ -58,28 +66,63 @@ export function createHud(root, config) {
   let mission = null;
   function drawStatic(cfg) {
     mission = cfg.mission || null;
-    sc.fillStyle = '#e9e7e2'; sc.fillRect(0, 0, 296, 296);
-    sc.fillStyle = '#9aa0a8';
+    sc.fillStyle = MM.bg; sc.fillRect(0, 0, 296, 296);
+    sc.strokeStyle = MM.grid; sc.lineWidth = 1; // 20 m grid gives scale
+    for (let g = C % (20 * S); g < 296; g += 20 * S) { sc.beginPath(); sc.moveTo(g, 0); sc.lineTo(g, 296); sc.moveTo(0, g); sc.lineTo(296, g); sc.stroke(); }
+    sc.fillStyle = MM.tree;
+    for (const t of cfg.trees || []) rect(t);
+    sc.fillStyle = MM.block;
     for (const b of cfg.buildings) rect(b);
-    sc.fillStyle = '#d9822b';
+    sc.fillStyle = MM.obstacle;
     for (const b of cfg.obstacles) rect(b);
-    if (mission) {
-      sc.fillStyle = 'rgba(214,69,69,0.45)';
-      for (const z of mission.noFly) sc.fillRect(C + z.min[0] * S, C + z.min[1] * S, (z.max[0] - z.min[0]) * S, (z.max[1] - z.min[1]) * S);
-      for (const [spot, color] of [[mission.pickup, '#f5b700'], [mission.drop, '#2ea66b']]) {
-        sc.fillStyle = color; sc.beginPath(); sc.arc(C + spot.x * S, C + spot.z * S, 6, 0, Math.PI * 2); sc.fill();
-        sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 1; sc.stroke();
+    sc.fillStyle = MM.block;
+    for (const b of cfg.solids || []) if (!b.hidden) rect(b);
+    for (const b of cfg.mapBoxes || []) rect(b); // realistic scenes: footprints of tall colliders
+    if (mission && mission.field) { // M3: field, house and river
+      const f = mission.field;
+      sc.fillStyle = '#3f6b3a'; sc.fillRect(C + f.min[0] * S, C + f.min[1] * S, (f.max[0] - f.min[0]) * S, (f.max[1] - f.min[1]) * S);
+      for (const r of mission.noSpray) {
+        sc.fillStyle = r.kind === 'river' ? '#7fb4e0' : 'rgba(214,69,69,0.55)';
+        sc.fillRect(C + r.min[0] * S, C + r.min[1] * S, (r.max[0] - r.min[0]) * S, (r.max[1] - r.min[1]) * S);
       }
     }
-    sc.fillStyle = '#fff'; sc.strokeStyle = '#1f1f1f'; sc.lineWidth = 2;
-    sc.beginPath(); sc.arc(C, C, 6, 0, Math.PI * 2); sc.fill(); sc.stroke();
-    sc.fillStyle = '#5a5a56'; sc.font = '600 16px system-ui, sans-serif'; sc.fillText('Peta mini', 8, 20);
+    if (mission && mission.fires) { // M1: the search area, fire zones and the safe point (victims are NOT drawn)
+      sc.strokeStyle = '#5a5a56'; sc.setLineDash([6, 4]); sc.lineWidth = 1;
+      sc.strokeRect(C + mission.area.min[0] * S, C + mission.area.min[1] * S, (mission.area.max[0] - mission.area.min[0]) * S, (mission.area.max[1] - mission.area.min[1]) * S);
+      sc.setLineDash([]);
+      sc.fillStyle = 'rgba(214,69,69,0.5)';
+      for (const f of mission.fires) { sc.beginPath(); sc.arc(C + f.x * S, C + f.z * S, f.r * S, 0, Math.PI * 2); sc.fill(); }
+      sc.fillStyle = '#2ea66b'; sc.beginPath(); sc.arc(C + mission.safe.x * S, C + mission.safe.z * S, 6, 0, Math.PI * 2); sc.fill();
+    }
+    if (mission && mission.landmarks) { // M2: subjects of the shot list
+      sc.fillStyle = '#7a4fd0';
+      for (const l of mission.landmarks) { sc.beginPath(); sc.arc(C + l.x * S, C + l.z * S, 5, 0, Math.PI * 2); sc.fill(); }
+    }
+    if (mission && mission.structure) { // M5: the structure (defects are not drawn)
+      const st = mission.structure;
+      sc.fillStyle = '#7a4fd0'; sc.fillRect(C + (st.x - st.w / 2) * S, C + (st.z - st.d / 2) * S, st.w * S, st.d * S);
+    }
+    if (mission && mission.noFly) {
+      sc.fillStyle = 'rgba(214,69,69,0.45)';
+      for (const z of mission.noFly) sc.fillRect(C + z.min[0] * S, C + z.min[1] * S, (z.max[0] - z.min[0]) * S, (z.max[1] - z.min[1]) * S);
+      for (const [spot, color] of [[mission.pickup, '#ffc247'], [mission.drop, '#3ccf8e']]) {
+        if (!spot) continue; // only M4 has pickup/drop; normalizeConfig gives every mission an empty noFly list
+        sc.fillStyle = color; sc.beginPath(); sc.arc(C + spot.x * S, C + spot.z * S, 6, 0, Math.PI * 2); sc.fill();
+        sc.strokeStyle = '#05090c'; sc.lineWidth = 1; sc.stroke();
+      }
+    }
+    sc.strokeStyle = '#eef3f6'; sc.lineWidth = 2; // home pad
+    sc.beginPath(); sc.arc(C, C, 7, 0, Math.PI * 2); sc.stroke();
+    sc.fillStyle = '#eef3f6'; sc.font = '700 10px Bahnschrift, system-ui, sans-serif'; sc.textAlign = 'center'; sc.fillText('H', C, C + 3.5); sc.textAlign = 'left';
+    sc.fillStyle = MM.text; sc.font = '400 18px Bahnschrift, system-ui, sans-serif'; sc.fillText('Peta mini', 12, 26);
   }
   drawStatic(config);
 
   let toastUntil = 0;
   let lastHold = -1;
   let lastMode = '';
+  let lastDmg = '';
+  let lastBadges = '';
 
   function setHints(h) {
     const item = ([k, l]) => {
@@ -93,7 +136,15 @@ export function createHud(root, config) {
     setHints,
     // New world (mission start): redraw the static minimap layer.
     setWorld: drawStatic,
-    addMapBox(b) { sc.fillStyle = '#d9822b'; rect(b); },
+    addMapBox(b) { sc.fillStyle = MM.obstacle; rect(b); },
+    // Badges (REC, thermal, spraying) and the photo flash.
+    setBadges(b) {
+      const key = `${b.rec ? 1 : 0}${b.thermal ? 1 : 0}${b.spray ? 1 : 0}`;
+      if (key === lastBadges) return;
+      lastBadges = key;
+      el.badges.innerHTML = (b.rec ? '<b class="rec">● REC</b>' : '') + (b.thermal ? '<b class="thermal">MODE PANAS</b>' : '') + (b.spray ? '<b class="spray">MENYEMPROT</b>' : '');
+    },
+    flash() { el.flash.classList.remove('go'); void el.flash.offsetWidth; el.flash.classList.add('go'); },
     // HUD size (graphics setting): shrinks the whole layer toward the center, so it never leaves the screen.
     setScale(s) { root.style.transform = `scale(${s})`; root.style.transformOrigin = 'center'; },
     setVisible(on) { root.style.visibility = on ? 'visible' : 'hidden'; },
@@ -122,7 +173,7 @@ export function createHud(root, config) {
       if (q === lastHold) return;
       lastHold = q;
       el.hold.style.display = q > 0 ? 'flex' : 'none';
-      el.hold.style.background = `conic-gradient(#1f1f1f ${p * 100}%, #ddd 0)`;
+      el.hold.style.background = `conic-gradient(#ff8a1f ${p * 100}%, rgba(255,255,255,0.2) 0)`;
     },
     // runs ~10 times per second
     // `put` writes a text only when it changed, so the browser does not redo layout 10 times a second for nothing.
@@ -131,11 +182,21 @@ export function createHud(root, config) {
       put(el.alt, `${t.alt.toFixed(1)} m`);
       put(el.spd, `${t.speed.toFixed(1)} m/s`);
       put(el.bat, `${Math.round(s.battery)}%`);
+      const bc = s.battery < 15 ? 'crit' : s.battery < 30 ? 'low' : '';
+      if (el.bat.className !== bc) el.bat.className = bc;
+      if (s.rotors) { // 4 squares (FL FR / RL RR), colour by health; rewritten only when a value changed
+        const key = s.rotors.map((h) => Math.round(h * 10)).join();
+        if (key !== lastDmg) {
+          lastDmg = key;
+          el.dmg.innerHTML = s.rotors.map((h) => `<i style="background:${h > 0.65 ? '#3ccf8e' : h > 0.05 ? '#ffc247' : '#ff5a4e'}" title="${Math.round(h * 100)}%"></i>`).join('');
+        }
+      }
       put(el.main, s.goalText);
+      el.main.style.fontSize = s.goalText.length > 70 ? '15px' : s.goalText.length > 40 ? '18px' : '';
       el.bar.style.width = `${s.progress * 100}%`;
       put(el.time, `Waktu ${fmtTime(s.flightTime)}`);
       put(el.hit, `Tabrakan ${s.collisions}`);
-      if (t.mode !== lastMode) { lastMode = t.mode; el.mode.textContent = t.mode; }
+      if (t.mode !== lastMode) { lastMode = t.mode; el.mode.textContent = MODE_LABEL[t.mode] || t.mode; }
       put(el.ctl, s.deviceLabel);
       put(el.fps, `${s.fps.toFixed(0)} (${s.ms.toFixed(1)} ms)${s.quality ? ` · ${s.quality}` : ''}`);
       if (now > toastUntil) el.toast.style.opacity = '0';
@@ -143,14 +204,18 @@ export function createHud(root, config) {
       mm.drawImage(stat, 0, 0);
       for (let i = 0; i < s.rings.length; i++) {
         const g = s.rings[i];
-        mm.fillStyle = g.passed ? '#2ea66b' : '#f5b700';
+        mm.fillStyle = g.passed ? '#3ccf8e' : '#ffc247';
         mm.beginPath(); mm.arc(C + g.x * S, C + g.z * S, 4, 0, Math.PI * 2); mm.fill();
+      }
+      if (s.marks) { // marks the pilot placed (found victims, marked defects)
+        mm.fillStyle = '#d64545';
+        for (let i = 0; i < s.marks.length; i++) { mm.beginPath(); mm.arc(C + s.marks[i].x * S, C + s.marks[i].z * S, 4, 0, Math.PI * 2); mm.fill(); }
       }
       mm.save();
       mm.translate(C + t.pos[0] * S, C + t.pos[2] * S);
       mm.rotate((t.yaw * Math.PI) / 180);
-      mm.fillStyle = '#1f1f1f';
-      mm.beginPath(); mm.moveTo(0, -9); mm.lineTo(6, 7); mm.lineTo(-6, 7); mm.closePath(); mm.fill();
+      mm.fillStyle = '#ff8a1f'; mm.strokeStyle = '#05090c'; mm.lineWidth = 1.5;
+      mm.beginPath(); mm.moveTo(0, -10); mm.lineTo(7, 8); mm.lineTo(0, 4); mm.lineTo(-7, 8); mm.closePath(); mm.fill(); mm.stroke();
       mm.restore();
     },
   };

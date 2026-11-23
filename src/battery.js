@@ -12,10 +12,10 @@ export class Battery {
   }
 
   // Called once per physics step. Nothing drains while landed.
-  step(dt, airborne, speed, payloadKg) {
+  step(dt, airborne, speed, payloadKg, drainMul = 1) {
     if (!airborne || this.level <= 0) return;
     const c = this.cfg;
-    this.level -= (c.drain_idle + c.drain_speed * speed + c.drain_kg * payloadKg) * dt;
+    this.level -= (c.drain_idle + c.drain_speed * speed + c.drain_kg * payloadKg) * drainMul * dt;
     if (this.level < 0) this.level = 0;
   }
 

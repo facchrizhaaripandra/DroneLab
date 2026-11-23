@@ -1,10 +1,12 @@
 // Sphere vs AABB resolution. Pure functions, no Three.js, so they are testable in Node.
-// Phase 1 uses plain AABB math. The interface can be swapped for Rapier later.
+// Plain AABB math. physics.js wraps this (and a Rapier version) behind one interface.
 
 // Pushes the sphere (pos, radius) out of every box and removes the velocity component
-// pointing into the box. Returns true if any contact happened.
-export function resolveSphereBoxes(pos, vel, radius, boxes) {
+// pointing into the box. Returns true if any contact happened. If `out` is given it receives the hardest
+// impact of this call: surface normal (nx, ny, nz) and the speed along it (before it was removed).
+export function resolveSphereBoxes(pos, vel, radius, boxes, out = null) {
   let hit = false;
+  if (out) out.speed = 0;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i];
     const cx = Math.max(b.min[0], Math.min(pos[0], b.max[0]));
@@ -36,7 +38,10 @@ export function resolveSphereBoxes(pos, vel, radius, boxes) {
     }
 
     const vn = vel[0] * nx + vel[1] * ny + vel[2] * nz;
-    if (vn < 0) { vel[0] -= vn * nx; vel[1] -= vn * ny; vel[2] -= vn * nz; }
+    if (vn < 0) {
+      if (out && -vn > out.speed) { out.speed = -vn; out.nx = nx; out.ny = ny; out.nz = nz; }
+      vel[0] -= vn * nx; vel[1] -= vn * ny; vel[2] -= vn * nz;
+    }
     hit = true;
   }
   return hit;

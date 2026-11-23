@@ -47,7 +47,7 @@ export function keyLabel(code) {
 }
 
 // Hints per context and device. Contexts: latihan (also used by the other practice missions),
-// delivery (M4), freeroam. Labels are short so they fit in the 1152 px bar. Key names follow the bindings.
+// delivery (M4), freeroam, sar (M1), foto (M2), agri (M3), inspeksi (M5). Labels are short so they fit in the 1152 px bar. Key names follow the bindings.
 function kbBase(b) {
   const L = (a) => keyLabel(b[a]);
   const move = [b.forward, b.left, b.back, b.right].join() === 'KeyW,KeyA,KeyS,KeyD' ? 'WASD' : [L('forward'), L('left'), L('back'), L('right')].join(' ');
@@ -58,11 +58,19 @@ const kbRight = {
   latihan: (L) => [[L('pause'), 'Jeda']],
   delivery: (L) => [[L('pickupDrop'), 'Ambil/Lepas'], [L('camera'), 'Kamera'], [L('pause'), 'Jeda']],
   freeroam: (L) => [[L('addObject'), 'Objek'], [L('camera'), 'Kamera'], [L('panelAI'), 'Panel'], [L('pause'), 'Jeda']],
+  sar: (L) => [[L('mark'), 'Tandai'], [L('thermal'), 'Panas'], [L('photo'), 'Foto'], [L('pause'), 'Jeda']],
+  foto: (L) => [[L('photo'), 'Foto'], [L('record'), 'Rekam'], [L('camera'), 'Kamera'], [L('pause'), 'Jeda']],
+  agri: (L) => [[L('spray'), 'Semprot (tahan)'], [L('camera'), 'Kamera'], [L('pause'), 'Jeda']],
+  inspeksi: (L) => [[L('photo'), 'Foto'], [L('mark'), 'Tandai'], [L('camera'), 'Kamera'], [L('pause'), 'Jeda']],
 };
 const PAD_RIGHT = {
   latihan: [['LB', 'Kamera'], ['RB', 'Kamera']],
   delivery: [['D-pad ►', 'Ambil/Lepas'], ['RB', 'Kamera']],
   freeroam: [['RB', 'Kamera']],
+  sar: [['D-pad ▲', 'Tandai'], ['D-pad ▼', 'Panas'], ['X', 'Foto']],
+  foto: [['X', 'Foto'], ['D-pad ◄', 'Rekam'], ['RB', 'Kamera']],
+  agri: [['RT', 'Semprot (tahan)'], ['RB', 'Kamera']],
+  inspeksi: [['X', 'Foto'], ['D-pad ▲', 'Tandai'], ['RB', 'Kamera']],
 };
 
 // Returns { left, right } for the given device; face-button names follow the controller type.

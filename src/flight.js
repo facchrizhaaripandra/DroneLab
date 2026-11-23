@@ -3,9 +3,12 @@
 // yaw 0 faces -Z, positive yaw is clockwise seen from above.
 import { PHYS } from './config.js';
 import { resolveSphereBoxes } from './collision.js';
+import { SAFE_SPEED } from './damage.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const NO_FX = { speedScale: 1, climbScale: 1, sink: 0, driftRight: 0, driftForward: 0, yawBias: 0, lift: 1 };
+const GRAVITY = 9.8;
 
 // First-order lag toward a target with an acceleration cap (this is the "damping" feel).
 function approach(v, target, tau, maxAccel, dt) {
@@ -28,6 +31,15 @@ export class Flight {
     this.takeoffAlt = 0;
     this.collision = false;        // true while touching a box
     this.collisionCount = 0;       // rising edges
+    this.damage = null;            // DroneDamage (damage.js) or null for an undamageable drone
+    this.onDamage = null;          // called with the list of parts that changed state after an impact
+    this.contact = { nx: 0, ny: 0, nz: 0, speed: 0 }; // hardest impact of the last step
+    this.wind = null;              // { speed, dir, gust } or null; dir uses the yaw convention (direction it blows to)
+    this.time = 0;
+    // Realistic scenes (terrain.js): ground height sampler (x, z) -> y and map limits
+    // { minX, maxX, minZ, maxZ, maxAgl }. Null = the flat generated world (ground 0, PHYS.mapHalf, PHYS.maxAlt).
+    this.ground = null;
+    this.limits = null;
     // Previous-step pose, used by the renderer to interpolate between fixed steps.
     this.prevPos = [0, 0, 0];
     this.prevYaw = 0;
@@ -46,7 +58,9 @@ export class Flight {
 
   takeoff(h = 5) {
     if (this.mode !== 'landed') return false;
-    this.takeoffAlt = clamp(h, 1, PHYS.maxAlt);
+    if (this.damage && this.damage.fx.lift < 0.35) return false; // too damaged to lift off
+    const g = this.groundY();
+    this.takeoffAlt = g + clamp(h, 1, this.limits ? this.limits.maxAgl : PHYS.maxAlt);
     this.mode = 'takeoff';
     return true;
   }
@@ -57,11 +71,21 @@ export class Flight {
     return true;
   }
 
-  step(dt, boxes = []) {
+  // Ground height under the drone (0 in the flat generated world).
+  groundY() { return this.ground ? this.ground(this.pos[0], this.pos[2]) : 0; }
+
+  // `world` is a list of AABBs or a physics object from physics.js (Rapier or AABB).
+  step(dt, world = []) {
+    this.time += dt;
     this.prevPos[0] = this.pos[0]; this.prevPos[1] = this.pos[1]; this.prevPos[2] = this.pos[2];
     this.prevYaw = this.yaw; this.prevPitch = this.pitch; this.prevRoll = this.roll;
 
+    const dmg = this.damage;
+    if (dmg && dmg.destroyed && this.mode !== 'landed' && this.mode !== 'crashed') this.mode = 'crashed';
+    if (this.mode === 'crashed') { this._stepCrashed(dt, world); return; }
+
     const P = PHYS;
+    const fxd = dmg ? dmg.fx : NO_FX;
     const a = this.action;
     const yawRad = this.yaw * DEG;
     const fx = Math.sin(yawRad), fz = -Math.cos(yawRad);   // forward
@@ -70,16 +94,23 @@ export class Flight {
     let tvx = 0, tvy = 0, tvz = 0, tyaw = 0;
     if (this.mode === 'takeoff') {
       const rem = this.takeoffAlt - this.pos[1];
-      tvy = clamp(rem * 1.2, 0.3, P.takeoffSpeed);
+      tvy = clamp(rem * 1.2, 0.3, P.takeoffSpeed) * fxd.climbScale - fxd.sink;
       if (rem <= 0.05) this.mode = 'flying';
     } else if (this.mode === 'flying') {
-      const f = a.forward * P.maxSpeed, s = a.strafe * P.maxSpeed;
+      const top = P.maxSpeed * fxd.speedScale;
+      const f = a.forward * top + fxd.driftForward, s = a.strafe * top + fxd.driftRight; // damage drift pushes even with sticks centered
       tvx = fx * f + rx * s;
       tvz = fz * f + rz * s;
-      tvy = a.climb * P.maxClimb;
-      tyaw = a.yaw * P.maxYawRate;
+      tvy = a.climb * P.maxClimb * fxd.climbScale - fxd.sink;
+      tyaw = a.yaw * P.maxYawRate + fxd.yawBias;
     } else if (this.mode === 'landing') {
-      tvy = -clamp(0.4 + this.pos[1] * 1.1, 0.4, P.landSpeed);
+      tvy = -clamp(0.4 + (this.pos[1] - this.groundY()) * 1.1, 0.4, P.landSpeed);
+    }
+
+    if (this.wind && (this.mode === 'flying' || this.mode === 'takeoff')) {
+      const w = this.wind, g = 1 + w.gust * Math.sin(this.time * 0.9) * Math.sin(this.time * 2.3 + 1);
+      tvx += Math.sin(w.dir * DEG) * w.speed * g;
+      tvz += -Math.cos(w.dir * DEG) * w.speed * g;
     }
 
     if (this.mode !== 'landed') {
@@ -103,22 +134,76 @@ export class Flight {
       this.pos[2] += this.vel[2] * dt;
 
       // Ceiling and map bounds.
-      if (this.pos[1] > P.maxAlt) { this.pos[1] = P.maxAlt; if (this.vel[1] > 0) this.vel[1] = 0; }
-      this._clampAxis(0, P.mapHalf);
-      this._clampAxis(2, P.mapHalf);
+      const L = this.limits;
+      if (L) {
+        this._clampRange(0, L.minX, L.maxX);
+        this._clampRange(2, L.minZ, L.maxZ);
+      } else {
+        this._clampAxis(0, P.mapHalf);
+        this._clampAxis(2, P.mapHalf);
+      }
+      const ceil = L ? this.groundY() + L.maxAgl : P.maxAlt;
+      if (this.pos[1] > ceil) { this.pos[1] = ceil; if (this.vel[1] > 0) this.vel[1] = 0; }
 
-      const hit = resolveSphereBoxes(this.pos, this.vel, P.radius, boxes);
+      const hit = this._collide(world, P.radius);
       if (hit && !this.collision) this.collisionCount++;
       this.collision = hit;
+      if (hit && dmg && this.contact.speed > SAFE_SPEED) {
+        const changes = dmg.hit(this.contact.nx, this.contact.ny, this.contact.nz, this.contact.speed, this.yaw);
+        if (changes.length && this.onDamage) this.onDamage(changes);
+      }
+
+      // Uneven ground (realistic scenes): never sink into the terrain. Flying into a slope fast counts as a hit.
+      const g = this.groundY();
+      if (this.ground && this.pos[1] < g) {
+        this.pos[1] = g;
+        const hs = Math.hypot(this.vel[0], this.vel[2]);
+        if (this.vel[1] < 0) this.vel[1] = 0;
+        if (hs > 2 && this.mode === 'flying') {
+          if (!this.collision) this.collisionCount++;
+          this.collision = true;
+          this.vel[0] *= 0.3; this.vel[2] *= 0.3;
+        }
+      }
 
       // Ground contact: soft touchdown (hard-landing damage is a later mission rule).
-      if (this.pos[1] <= 0.03 && this.vel[1] <= 0 && (this.mode === 'landing' || this.mode === 'flying')) {
-        this.pos[1] = 0;
+      if (this.pos[1] <= g + 0.03 && this.vel[1] <= 0 && (this.mode === 'landing' || this.mode === 'flying')
+          && (!this.ground || this.mode === 'landing' || Math.hypot(this.vel[0], this.vel[2]) < 2)) {
+        this.pos[1] = g;
         this.vel[0] = this.vel[1] = this.vel[2] = 0;
         this.yawRate = 0;
         this.mode = 'landed';
       }
     }
+  }
+
+  _collide(world, radius) {
+    const c = this.contact;
+    if (Array.isArray(world)) return resolveSphereBoxes(this.pos, this.vel, radius, world, c);
+    c.speed = 0;
+    return world.resolve(this.prevPos, this.pos, this.vel, radius, c);
+  }
+
+  // A destroyed drone: no control, falls with gravity, slides to a stop.
+  _stepCrashed(dt, world) {
+    this.vel[1] -= GRAVITY * dt;
+    const k = Math.exp(-dt * 0.8);
+    this.vel[0] *= k; this.vel[2] *= k;
+    this.yawRate *= k;
+    this.yaw += this.yawRate * dt;
+    this.pitch += (35 - this.pitch) * (1 - Math.exp(-dt * 2)); // nose down, tumbling
+    const g = this.groundY();
+    if (this.pos[1] > g) {
+      for (let i = 0; i < 3; i++) this.pos[i] += this.vel[i] * dt;
+      this._collide(world, PHYS.radius);
+    }
+    const g2 = this.groundY();
+    if (this.pos[1] <= g2) { this.pos[1] = g2; this.vel[0] = this.vel[1] = this.vel[2] = 0; this.yawRate = 0; }
+  }
+
+  _clampRange(i, lo, hi) {
+    if (this.pos[i] > hi) { this.pos[i] = hi; if (this.vel[i] > 0) this.vel[i] = 0; }
+    else if (this.pos[i] < lo) { this.pos[i] = lo; if (this.vel[i] < 0) this.vel[i] = 0; }
   }
 
   _clampAxis(i, half) {

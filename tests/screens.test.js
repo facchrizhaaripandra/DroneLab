@@ -15,15 +15,15 @@ test('moveFocus skips disabled items and wraps around', () => {
 });
 
 test('main menu has the six spec entries; all entries are enabled', () => {
-  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, editor: noop, settings: noop, help: noop });
-  assert.deepEqual(s.items.map((i) => i.label), ['Mulai', 'Misi', 'Freeroam', 'Editor perintah', 'Pengaturan', 'Bantuan']);
+  const s = mainMenuSpec({ quickStart: noop, missions: noop, freeroam: noop, scenes: noop, editor: noop, settings: noop, help: noop });
+  assert.deepEqual(s.items.map((i) => i.label), ['Mulai', 'Misi', 'Freeroam', 'Peta realistis', 'Editor perintah', 'Pengaturan', 'Bantuan']);
   assert.ok(s.items.every((i) => i.enabled !== false));
 });
 
-test('mission list: 3 practice + 1 main mission playable, rest marked unavailable', () => {
+test('mission list: every mission playable, one entry per variant', () => {
   const s = missionSpec(MISSIONS, 'stub', { start: noop, back: noop });
   const playable = s.items.filter((i) => i.enabled !== false && i.label !== 'Kembali');
-  assert.equal(playable.length, 4);
+  assert.equal(playable.length, 11); // 3 practice + M1 x2 + M2 x2 + M3 + M4 + M5 x2
   assert.match(s.subtitle, /lokal/);
   assert.match(missionSpec(MISSIONS, 'online', { start: noop, back: noop }).subtitle, /resmi/);
 });
