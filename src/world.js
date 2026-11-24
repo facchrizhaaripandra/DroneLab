@@ -6,6 +6,7 @@ import { makeDefaultConfig } from './worldconfig.js';
 import { makeAgri, cellState } from './agri.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createFireField } from './fire.js';
+import { createSky, createBackdrop, HAZE } from './sky.js';
 
 // Realistic tree models (public/models/trees.glb, built in Blender from photographed leaves). Loaded once; until
 // they arrive (or if the file is missing) the forest is drawn with the simple cone trees.
@@ -131,7 +132,7 @@ function groundMaterial() {
 export function buildWorld(scene, config) {
   const real = config.realScene || null; // realistic Blender scene: { root, colliders, groundAt } (see realworld.js)
   scene.background = skyTexture();
-  scene.fog = real ? new THREE.Fog(HORIZON, 260, 1500) : new THREE.Fog(HORIZON, 110, 360);
+  scene.fog = real ? new THREE.Fog(HAZE, 300, 1700) : new THREE.Fog(HAZE, 140, 420);
   const root = new THREE.Group(); // everything of this world lives here, so dispose() can remove it
   scene.add(root);
 
@@ -144,6 +145,19 @@ export function buildWorld(scene, config) {
   const sc = sun.shadow.camera;
   sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 160;
   root.add(sun, sun.target);
+
+  // Langit (kubah dengan awan, ikut kamera) dan latar pemandangan di luar batas peta. Batas peta = tembok tak terlihat
+  // (Flight menahan drone di bounds), jadi gambar latar tidak pernah bisa didekati.
+  const extent = config.bounds || 100;
+  const backR = extent + (real ? 160 : 230);
+  const sky = createSky(real ? 2700 : 850);
+  const wind = config.wind;
+  if (wind) sky.setWind(wind.dir, Math.max(1, wind.speed));
+  sky.setClouds(config.clouds ? config.clouds.cover : 0.4, config.clouds ? config.clouds.seed : 0);
+  const sid = real ? real.id || '' : '';
+  const theme = /gedung|kota|inspeksi_gedung/.test(sid) || (!real && (config.buildings || []).length > 6) ? 'city' : 'nature';
+  const backdrop = createBackdrop({ radius: backR, base: real ? (real.groundMin ?? 0) : 0, theme, seed: (config.seed || 1) + sid.length, groundColor: real ? 0x6f7f5c : 0x86997a });
+  root.add(sky.mesh, backdrop.group);
 
   // Ground + grid (the grid gives a sense of speed without textures). A realistic scene brings its own ground.
   if (real) {
@@ -167,6 +181,7 @@ export function buildWorld(scene, config) {
   const grid = new THREE.GridHelper(config.bounds * 2, config.bounds, 0x6b7f5c, 0x7a8f6a);
   grid.position.y = 0.02;
   grid.material.transparent = true; grid.material.opacity = 0.28; grid.material.depthWrite = false; // a hint of scale, not a sheet of graph paper
+  ground.position.y = 0;
   if (!real) root.add(ground, grid);
 
   // Home pad at (0, 0, 0): disc + an "H".
@@ -365,6 +380,7 @@ export function buildWorld(scene, config) {
     const az = (m.sun.az * Math.PI) / 180, el = (m.sun.el * Math.PI) / 180;
     sunDir[0] = Math.sin(az) * Math.cos(el); sunDir[1] = Math.sin(el); sunDir[2] = -Math.cos(az) * Math.cos(el);
   }
+  sky.setSun(sunDir[0], sunDir[1], sunDir[2]);
 
   const world = {
     colliders,
@@ -434,11 +450,12 @@ export function buildWorld(scene, config) {
       field.instanceColor.needsUpdate = true;
     },
     // Api, bara, dan asap bergerak di shader; di sini hanya waktu dan lampu api terdekat. Tanpa alokasi.
-    tick(t) { fire.update(t, lastPos); },
+    tick(t, cam) { fire.update(t, lastPos); sky.update(t, cam); },
     // Sun angle (dataset export varies it). Azimuth in the yaw convention, elevation in degrees.
     setSun(az, el) {
       const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
       sunDir[0] = Math.sin(a) * Math.cos(e); sunDir[1] = Math.sin(e); sunDir[2] = -Math.cos(a) * Math.cos(e);
+      sky.setSun(sunDir[0], sunDir[1], sunDir[2]);
     },
     // Shadows on/off (graphics setting). Only the sun casts shadows, so this is one flag.
     setShadows(on) { sun.castShadow = on; },

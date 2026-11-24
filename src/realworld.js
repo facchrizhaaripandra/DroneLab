@@ -79,6 +79,8 @@ export function prepareScene({ meta, gltf }) {
     for (const m of mats) if (m && m.transparent) m.depthWrite = false; // decals and glass over walls
   });
   const groundAt = makeHeightSampler(meta.height);
+  let groundMin = Infinity;
+  for (const v of meta.height.data) if (v < groundMin) groundMin = v;
   const b = meta.bounds;
   return {
     root,
@@ -86,6 +88,7 @@ export function prepareScene({ meta, gltf }) {
     colliders: sceneColliders(meta.colliders),
     limits: sceneLimits(meta),
     mapBoxes: sceneMapBoxes(meta.mapBoxes),
+    groundMin: Number.isFinite(groundMin) ? groundMin : 0,
     fires: meta.fires || [], // sumber api untuk animasi kebakaran (fire.js), koordinat dunia
     bounds: Math.ceil(Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ))),
     title: meta.title,

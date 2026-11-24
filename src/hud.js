@@ -30,6 +30,7 @@ export function createHud(root, config) {
       <div class="row mono"><span>ALT</span><span id="t-alt"></span></div>
       <div class="row mono"><span>SPD</span><span id="t-spd"></span></div>
       <div class="row mono"><span>BAT</span><span id="t-bat"></span></div>
+      <div class="row mono"><span>ANGIN</span><span><b id="t-wa" class="warrow">↑</b> <span id="t-wind"></span></span></div>
       <div class="row"><span>Baling</span><span id="t-dmg" class="dmg"></span></div></div>
     <div id="goal" class="panel"><h1 id="g-title">Latihan terbang</h1>
       <div class="big" id="g-main"></div><div class="bar"><i id="g-bar"></i></div>
@@ -53,7 +54,7 @@ export function createHud(root, config) {
     <pre id="dbg" class="panel mono"></pre>`;
   const $ = (id) => root.querySelector('#' + id);
   const el = {
-    alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), dmg: $('t-dmg'), main: $('g-main'), bar: $('g-bar'),
+    alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), wind: $('t-wind'), warrow: $('t-wa'), dmg: $('t-dmg'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
     title: $('g-title'), gw: $('s-gw'), ai: $('s-ai'), side: $('side'), sideRows: $('side-rows'),
     hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), zoomtag: $('zoomtag'), zoomfs: $('zoomfs'), altwarn: $('altwarn'), firewarn: $('firewarn'), flash: $('flash'),
@@ -127,7 +128,7 @@ export function createHud(root, config) {
   drawStatic(config);
 
   let toastUntil = 0;
-  let lastAlt = '', lastFire = '';
+  let lastAlt = '', lastFire = '', lastWindRel = -1;
   let pipOn = true;
   let lastZoom = '', lastZoomFull = null;
   const pipEl = root.querySelector('#pip');
@@ -236,6 +237,12 @@ export function createHud(root, config) {
       const t = s.tel;
       put(el.alt, `${t.alt.toFixed(1)} m`);
       put(el.spd, `${t.speed.toFixed(1)} m/s`);
+      // Angin: kecepatan saat ini (dengan hembusan); panah = arah tiupan relatif terhadap hidung drone (↑ = searah maju).
+      const wv = s.windVel ? Math.hypot(s.windVel[0], s.windVel[1]) : 0;
+      put(el.wind, s.wind && s.wind.speed >= 0.3 ? `${wv.toFixed(1)} m/s` : 'tenang');
+      const rel = s.wind ? Math.round((((s.wind.dir - t.yaw) % 360) + 360) % 360 / 5) * 5 : 0;
+      if (rel !== lastWindRel) { lastWindRel = rel; el.warrow.style.transform = `rotate(${rel}deg)`; }
+      el.wind.classList.toggle('low', !!s.wind && s.wind.speed >= 8);
       put(el.bat, `${Math.round(s.battery)}%`);
       const bc = s.battery < 15 ? 'crit' : s.battery < 30 ? 'low' : '';
       if (el.bat.className !== bc) el.bat.className = bc;

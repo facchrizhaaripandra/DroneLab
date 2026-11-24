@@ -29,6 +29,93 @@ STRUCT = ("wall_", "facade_", "partitions_", "floor_slab", "roof_slab", "roof_pa
           "hospital_", "market", "ditch", "roof_machine", "power_cables")
 
 
+FLAT_MAX = 0.8     # m: parts thinner than this are slabs (floors, roofs, decks)
+MERGE_MAX = 7.0     # m: merged parts (a car, a desk) never grow wider than this, so a merged box cannot cover a hole
+FLAT_AREA = 12.0   # m2: only large slabs can hide a hole (atrium, courtyard, stair well)
+
+
+def footprint_boxes(co, tris, mn, mx, cell=0.5):
+    """A big flat part (a floor with an atrium hole, a roof with a courtyard) is a ring: one bounding box would fill the hole
+    and block the drone there. Rasterize the real triangles on an XY grid and return one box per run of covered cells
+    (merged vertically), so holes stay open. Returns None when the part is solid (one box is right)."""
+    nx = max(1, int(np.ceil((mx[0] - mn[0]) / cell))); ny = max(1, int(np.ceil((mx[1] - mn[1]) / cell)))
+    if nx * ny > 400000:
+        return None
+    cx = mn[0] + (np.arange(nx) + 0.5) * cell; cy = mn[1] + (np.arange(ny) + 0.5) * cell
+    X, Y = np.meshgrid(cx, cy, indexing="ij")
+    cov = np.zeros((nx, ny), bool)
+    for t in tris:
+        a, b, c = co[t[0]], co[t[1]], co[t[2]]
+        i0 = max(0, int((min(a[0], b[0], c[0]) - mn[0]) / cell) - 1); i1 = min(nx, int((max(a[0], b[0], c[0]) - mn[0]) / cell) + 2)
+        j0 = max(0, int((min(a[1], b[1], c[1]) - mn[1]) / cell) - 1); j1 = min(ny, int((max(a[1], b[1], c[1]) - mn[1]) / cell) + 2)
+        if i0 >= i1 or j0 >= j1:
+            continue
+        px = X[i0:i1, j0:j1]; py = Y[i0:i1, j0:j1]
+        d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+        if abs(d) < 1e-9:
+            continue
+        l1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / d
+        l2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / d
+        t = 0.3 * cell  # distance tolerance (m): thin triangles still mark the cells they touch
+        ab = np.hypot(*(b[:2] - a[:2])); bc = np.hypot(*(c[:2] - b[:2])); ca = np.hypot(*(a[:2] - c[:2]))
+        ad = abs(d)
+        l3 = 1 - l1 - l2
+        cov[i0:i1, j0:j1] |= (l1 >= -t * bc / ad) & (l2 >= -t * ca / ad) & (l3 >= -t * ab / ad)
+    if cov.mean() >= 0.93:
+        return None
+    return decompose(cov, mn, cell, mn[2], mx[2]) or None
+
+
+def decompose(cov, mn, cell, zlo, zhi):
+    """Covered cells of an XY grid -> boxes: one per run of cells, merged vertically (holes stay open)."""
+    nx, ny = cov.shape
+    out = []; open_runs = {}
+    for i in range(nx + 1):
+        runs = []
+        if i < nx:
+            j = 0
+            while j < ny:
+                if cov[i, j]:
+                    k = j
+                    while k < ny and cov[i, k]:
+                        k += 1
+                    runs.append((j, k)); j = k
+                else:
+                    j += 1
+        nxt = {}
+        for (j, k) in runs:
+            nxt[(j, k)] = open_runs.pop((j, k), i)
+        for (j, k), i0 in open_runs.items():
+            out.append([mn[0] + i0 * cell, mn[1] + j * cell, zlo, mn[0] + i * cell, mn[1] + k * cell, zhi])
+        open_runs = nxt
+    return out
+
+
+def union_flat_boxes(flat, cell=0.5):
+    """Many small flat parts (floor tiles, rooms) of one object: merging their bounding boxes would cover the atrium or
+    courtyard between them. Rasterize the boxes themselves and rebuild the footprint, so only covered cells stay solid."""
+    out = []
+    flat = sorted(flat, key=lambda b: b[2])
+    groups = []
+    for b in flat:  # cluster by height
+        if groups and b[2] - groups[-1][0][2] < 0.4:
+            groups[-1].append(b)
+        else:
+            groups.append([b])
+    for g in groups:
+        x0 = min(b[0] for b in g); y0 = min(b[1] for b in g); x1 = max(b[3] for b in g); y1 = max(b[4] for b in g)
+        nx = max(1, int(np.ceil((x1 - x0) / cell))); ny = max(1, int(np.ceil((y1 - y0) / cell)))
+        if nx * ny > 400000:
+            out += g; continue
+        cov = np.zeros((nx, ny), bool)
+        for b in g:
+            i0 = int(np.floor((b[0] - x0) / cell + 0.2)); i1 = max(i0 + 1, int(np.ceil((b[3] - x0) / cell - 0.2)))
+            j0 = int(np.floor((b[1] - y0) / cell + 0.2)); j1 = max(j0 + 1, int(np.ceil((b[4] - y0) / cell - 0.2)))
+            cov[i0:i1, j0:j1] = True
+        out += decompose(cov, (x0, y0), cell, min(b[2] for b in g), max(b[5] for b in g))
+    return out
+
+
 def is_ground(n):
     return n.startswith(GROUND_PREFIX) or any(k in n for k in WATER_KEYS)
 
@@ -108,6 +195,8 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
         co = np.empty(nv * 3, np.float64); me.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
         co = (np.array(mw)[:3, :3] @ co.T).T + np.array(mw.translation)
         ed = np.empty(len(me.edges) * 2, np.int64); me.edges.foreach_get("vertices", ed); ed = ed.reshape(-1, 2)
+        me.calc_loop_triangles()
+        tr = np.empty(len(me.loop_triangles) * 3, np.int64); me.loop_triangles.foreach_get("vertices", tr); tr = tr.reshape(-1, 3)
         ev.to_mesh_clear()
         parent = np.arange(nv)
 
@@ -125,18 +214,33 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
         roots = np.array([find(i) for i in range(nv)])
         order = np.argsort(roots, kind="stable"); rs = roots[order]; cs = co[order]
         boxes = []
-        for g in np.split(cs, np.flatnonzero(np.diff(rs)) + 1):
+        cuts = np.flatnonzero(np.diff(rs)) + 1
+        troot = roots[tr[:, 0]] if len(tr) else np.empty(0, np.int64)
+        for g, gi in zip(np.split(cs, cuts), np.split(order, cuts)):
             mn, mx = g.min(0), g.max(0)
             if (mx - mn).max() < 0.35:
                 continue
+            if mx[2] - mn[2] < FLAT_MAX and (mx[0] - mn[0]) * (mx[1] - mn[1]) >= FLAT_AREA and len(tr):
+                fb = footprint_boxes(co, tr[troot == roots[gi[0]]], mn, mx)  # ring-shaped slab: keep the hole open
+                if fb:
+                    cols += [tuple(float(v) for v in b) for b in fb]
+                    continue
             boxes.append([float(v) for v in (*mn, *mx)])
+        if not n.startswith(STRUCT):
+            # Floor-like parts (rooms, finishes, debris sheets) must not be merged with their neighbours: the merged box
+            # would span the atrium or courtyard between them. Only small or tall parts (cars, desks, lamps) merge.
+            flat = [b for b in boxes if b[5] - b[2] < FLAT_MAX and (b[3] - b[0]) * (b[4] - b[1]) >= 1.0]
+            boxes = [b for b in boxes if not (b[5] - b[2] < FLAT_MAX and (b[3] - b[0]) * (b[4] - b[1]) >= 1.0)]
+            if flat:
+                cols += [tuple(float(v) for v in b) for b in union_flat_boxes(flat)]
         if not n.startswith(STRUCT) and len(boxes) > 1:
             merged = True
             while merged:
                 merged = False; outb = []
                 for b in sorted(boxes, key=lambda q: q[0]):
                     for m in outb[-40:]:
-                        if all(b[k] <= m[k + 3] + 0.05 and b[k + 3] >= m[k] - 0.05 for k in range(3)):
+                        if all(b[k] <= m[k + 3] + 0.05 and b[k + 3] >= m[k] - 0.05 for k in range(3)) and all(
+                                max(b[k + 3], m[k + 3]) - min(b[k], m[k]) <= MERGE_MAX for k in range(2)):  # never one box over a courtyard
                             for k in range(3):
                                 m[k] = min(m[k], b[k]); m[k + 3] = max(m[k + 3], b[k + 3])
                             merged = True; break

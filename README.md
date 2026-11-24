@@ -372,3 +372,22 @@ Peta lain tidak punya api; tambahkan entri di `fires.json` lalu ekspor ulang ata
 ### Bahaya api
 
 `heatAt()` di `fire.js`: tiap api punya inti (silinder radius `r × 1,1 + 0,6`, tinggi sampai `h × 2,2 + 2`, jadi plume di atas api ikut panas) dan jangkauan panas di luarnya (`0,8 × h + 1,5` m). Di dalam inti drone rusak seperti zona api misi (0,12 per detik, kira-kira 8 detik sampai kamera hancur); di jangkauan panas rusaknya lebih pelan, sampai 60% dan makin kecil menjauh. Jarak 10 m dari inti memunculkan banner "Terlalu dekat api (N m)", dan di dalam panas banner merah "Terkena panas api!". Kerusakan berlaku di peta realistis; zona api misi M1 tetap memakai hitungan `missions.js`, tapi peringatan dekat-api berlaku di keduanya. Area luas: lidah api per sumber sampai 28, S1 sekarang 34 sumber api (atap, jendela empat sisi, halaman), S2 67 sumber (pohon hangus, tajuk, semak).
+
+## Langit, latar pemandangan, dan angin acak
+
+`src/sky.js`:
+- **Langit:** kubah shader yang ikut kamera: gradasi biru (cakrawala berkabut sampai biru tua di atas), cahaya matahari, dan awan noise yang bergerak terbawa angin. Banyaknya awan acak tiap kali dunia dimuat.
+- **Latar kiri-kanan:** cincin gambar pemandangan di luar batas peta (dilukis di kanvas: gunung jauh berkabut, gunung tengah, bukit, barisan pohon; peta kota juga siluet gedung) plus tanah jauh di bawahnya. Kabut `HAZE` sama dengan warna dasar gambar, jadi sambungannya tidak terlihat. Batas peta adalah tembok tak terlihat (Flight menahan drone di bounds); menabrak batas memunculkan "Batas peta: tidak bisa lewat".
+- **Angin acak:** `randomWind()` tiap mulai atau ulangi (misi, freeroam, peta realistis, termasuk M3 semprot): kebanyakan 0,5-6 m/s, kadang 9-12 m/s; arah dan hembusan acak. Toast saat mulai, misalnya "Angin sedang 4,2 m/s dari timur laut", dan baris ANGIN di telemetri (panah = arah tiupan relatif hidung drone).
+
+Fisika angin (`flight.js`): drone dengan GPS menahan posisi melawan angin rata-rata sampai 10,7 m/s (`PHYS.windResist`, DJI level 5); di atas itu drone terseret. Hembusan sebagian lolos dan menggeser drone sedikit. Terbang melawan angin lebih lambat. Badan drone condong melawan angin (`leanPitch/leanRoll`, hanya tampilan; gimbal menjaga kamera dan skor horizon tetap rata). Baterai dihitung dari kecepatan terhadap udara, jadi menahan angin lebih boros. Asap api dan awan ikut arah angin.
+
+## Lubang tengah gedung (atrium) dan halaman dalam
+
+Eksportir Blender (`scripts/blender/export_scene.py`) tidak lagi membuat satu kotak tabrakan besar untuk lantai atau pipa yang saling bersentuhan:
+
+- `footprint_boxes` / `decompose` membangun ulang pelat datar (lantai, atap) dari jejak aslinya, sehingga lubang atrium tetap terbuka.
+- `union_flat_boxes` menjaga pelat datar tetap terpisah, tidak digabung.
+- `MERGE_MAX = 7 m`: dua bagian tidak digabung bila hasilnya lebih lebar dari 7 m.
+
+Setelah mengubah eksportir, ekspor ulang semua peta. `tests/atrium.test.js` memeriksa bahwa lubang tengah S1 terbuka dari lantai sampai atap dan drone bisa turun lewat situ.

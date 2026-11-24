@@ -6,6 +6,7 @@ import { STEP } from './config.js';
 import { Flight, ALT_GRACE, ALT_FAIL } from './flight.js';
 import { ZOOM } from './camera-model.js';
 import { heatAt, HEAT_RATE, FIRE_WARN } from './fire.js';
+import { randomWind, windText } from './sky.js';
 const GIMBAL_RATE = 45; // derajat per detik, kecepatan gimbal drone konsumen (sekitar 20-100)
 import { buildWorld } from './world.js';
 import { makeMissionConfig, normalizeConfig } from './worldconfig.js';
@@ -240,6 +241,9 @@ function damageText(c) {
 function loadWorld(cfg) {
   world.dispose();
   config = normalizeConfig(cfg);
+  // Angin dan awan acak tiap kali dunia dimuat (mulai atau ulangi), juga untuk misi semprot (M3).
+  config.wind = randomWind();
+  config.clouds = { cover: 0.2 + Math.random() * 0.45, seed: Math.random() * 10 };
   world = buildWorld(scene, config);
   world.setShadows(aq.effective(settings.graphics).shadows);
   aq.holdFor(4); // a new world compiles shaders and warms caches: do not judge FPS yet
@@ -254,7 +258,7 @@ function loadWorld(cfg) {
   hud.setWorld(config);
   chase.ground = config.realScene ? config.realScene.groundAt : null;
   drone.setGround(chase.ground);
-  camera.far = config.realScene ? 2500 : 500; // the mountain scene is 1 km wide
+  camera.far = config.realScene ? 3000 : 1000; // the mountain scene is 1 km wide; the sky dome and backdrop sit far out
   camera.updateProjectionMatrix();
   drone.pipCamera.far = config.realScene ? 1200 : 400;
   drone.pipCamera.updateProjectionMatrix();
@@ -263,6 +267,7 @@ function loadWorld(cfg) {
   drone.setGimbalPitch(-10, true);
   drone.setZoom(1, true);
   drone.setGimbalRoll(0, true);
+  windToastDue = true;
 }
 
 // ---- screens ----
@@ -559,7 +564,7 @@ function frame(now) {
       const airborne = sim.mode !== 'landed';
       const run = session.run;
       if (session.kind === 'mission') {
-        session.battery.step(STEP, airborne, Math.hypot(sim.vel[0], sim.vel[1], sim.vel[2]), run.payloadKg, sim.damage.fx.drainMul);
+        session.battery.step(STEP, airborne, Math.hypot(sim.vel[0] - sim.windVel[0], sim.vel[1], sim.vel[2] - sim.windVel[1]), /* menahan angin = boros baterai */ run.payloadKg, sim.damage.fx.drainMul);
         run.step(STEP, sim, session.battery.level, world.passedCount, world.rings.length);
       } else if (airborne) flightTime += STEP;
       if (session.kind === 'freeroam' && sim.mode === 'crashed') {
@@ -585,7 +590,7 @@ function frame(now) {
   if (state === 'menu') orbitCamera(now / 1000); // main menu backdrop: a slow orbit around the drone
   else chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, drawDt);
   world.followLight(drone.group.position.x, drone.group.position.z);
-  world.tick(now / 1000);
+  world.tick(now / 1000, camera.position);
   // Mode "Kamera depan drone": layar penuh = gambar kamera drone (sama dengan popup), popup disembunyikan.
   const fpv = (state === 'play' || state === 'paused') && chase.mode.id === 'fpv';
   hud.setPipVisible(!fpv);
@@ -654,12 +659,15 @@ function fireStep(dt) {
   }
 }
 
+let windToastDue = false, edgeToastAt = 0;
 function updateHud(now) {
+  if (windToastDue && state === 'play') { windToastDue = false; toast(windText(config.wind)); }
+  if (sim.atEdge && now - edgeToastAt > 2500) { edgeToastAt = now; toast('Batas peta: tidak bisa lewat'); }
   const run = session.run;
   const tel = sim.telemetry();
   const level = session.battery.level;
   hud.update({
-    tel, rotors: sim.damage.rotors, fps, ms: msAvg, quality: aq.level ? aq.name : '', battery: level,
+    tel, wind: config.wind, windVel: sim.windVel, rotors: sim.damage.rotors, fps, ms: msAvg, quality: aq.level ? aq.name : '', battery: level,
     flightTime: run ? run.t : flightTime,
     collisions: sim.collisionCount,
     goalText: run ? run.text || 'Lepas landas (tahan X / A)' : `Terbang bebas · objek ditambah: ${session.extra}`,

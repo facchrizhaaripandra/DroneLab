@@ -165,7 +165,7 @@ export function createDrone(scene, modelUrl = DRONE_MODEL_URL) {
       // Convention conversion lives here only:
       // sim yaw is clockwise from above, Three rotation.y is counter-clockwise -> negate.
       // sim roll (+ = right side down) is a rotation about -Z -> negate for rotation.z.
-      group.rotation.set(pitch * DEG, -yaw * DEG, -roll * DEG);
+      group.rotation.set((pitch + (f.leanPitch || 0)) * DEG, -yaw * DEG, -(roll + (f.leanRoll || 0)) * DEG);
 
       const sy = Math.sin(yaw * DEG), cy = Math.cos(yaw * DEG);
       // Lensa tidak boleh masuk ke tanah saat drone mendarat: naikkan sampai tanah di bawah dan di depan lensa tertutup.

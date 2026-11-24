@@ -36,6 +36,9 @@ export class Flight {
     this.takeoffAlt = 0;
     this.homeY = 0;
     this.ceiling = Infinity;
+    this.leanPitch = 0; this.leanRoll = 0; // derajat, condong badan melawan angin
+    this.windVel = [0, 0]; // m/s, kecepatan udara (x, z) saat ini
+    this.atEdge = false;   // menabrak batas peta (tembok tak terlihat di depan gambar latar)
     this.overTime = 0;  // detik di atas batas ketinggian
     this.collision = false;        // true while touching a box
     this.collisionCount = 0;       // rising edges
@@ -116,10 +119,28 @@ export class Flight {
       tvy = -clamp(0.4 + (this.pos[1] - this.groundY()) * 1.1, 0.4, P.landSpeed);
     }
 
-    if (this.wind && (this.mode === 'flying' || this.mode === 'takeoff')) {
-      const w = this.wind, g = 1 + w.gust * Math.sin(this.time * 0.9) * Math.sin(this.time * 2.3 + 1);
-      tvx += Math.sin(w.dir * DEG) * w.speed * g;
-      tvz += -Math.cos(w.dir * DEG) * w.speed * g;
+    // Angin. Udara bergerak windVel (angin rata-rata + hembusan). Drone dengan GPS menahan posisinya, jadi angin rata-rata
+    // dilawan sampai batas tahan angin (P.windResist, kira-kira level 5 DJI = 10,7 m/s); sisanya mendorong drone.
+    // Hembusan datang lebih cepat dari koreksi kontroler, jadi sebagian ikut mendorong. Melawan angin memperlambat
+    // drone, dan badan drone miring melawan angin walau diam (lihat tilt di bawah).
+    this.windVel[0] = 0; this.windVel[1] = 0;
+    if (this.wind && this.wind.speed > 0) {
+      const w = this.wind, t = this.time, sd = w.seed || 0;
+      const gust = w.gust * (Math.sin(t * 0.9 + sd) * Math.sin(t * 2.3 + 1 + sd) + 0.5 * Math.sin(t * 0.37 + sd * 2));
+      const dx = Math.sin(w.dir * DEG), dz = -Math.cos(w.dir * DEG);
+      const veer = Math.sin(t * 0.21 + sd * 3) * 0.25 * w.gust; // arah angin berayun sedikit
+      const vx = dx + veer * -dz, vz = dz + veer * dx;
+      const sp = w.speed * (1 + gust);
+      this.windVel[0] = vx * sp; this.windVel[1] = vz * sp;
+      if (this.mode === 'flying' || this.mode === 'takeoff') {
+        const over = Math.max(0, w.speed - P.windResist);          // angin terlalu kencang: drone terseret
+        const gustPush = w.speed * gust * 0.45;                     // hembusan yang lolos dari koreksi
+        const push = over + gustPush;
+        tvx += vx * push; tvz += vz * push;
+        // Melawan angin: kecepatan maju ke arah angin datang berkurang (motor dipakai untuk menahan angin).
+        const along = tvx * dx + tvz * dz;
+        if (along < 0) { const k = Math.min(0.6, w.speed / P.windResist * 0.5); tvx -= dx * along * k; tvz -= dz * along * k; }
+      }
     }
 
     if (this.mode !== 'landed') {
@@ -133,6 +154,11 @@ export class Flight {
     // Tilt follows body-frame velocity (lean into the movement).
     const vf = this.vel[0] * fx + this.vel[2] * fz;
     const vr = this.vel[0] * rx + this.vel[2] * rz;
+    // Condong melawan angin (hanya badan drone; gimbal menjaga kamera tetap rata, jadi pitch/roll kamera tidak ikut).
+    const air = this.mode === 'landed' ? 0 : 1;
+    const wf = -(this.windVel[0] * fx + this.windVel[1] * fz) * air, wr = -(this.windVel[0] * rx + this.windVel[1] * rz) * air;
+    this.leanPitch += (-clamp(wf / P.maxSpeed, -1.5, 1.5) * P.tiltMax - this.leanPitch) * (1 - Math.exp(-dt / 0.25));
+    this.leanRoll += (clamp(wr / P.maxSpeed, -1.5, 1.5) * P.tiltMax - this.leanRoll) * (1 - Math.exp(-dt / 0.25));
     const kt = 1 - Math.exp(-dt / P.tauTilt);
     this.pitch += (-clamp(vf / P.maxSpeed, -1, 1) * P.tiltMax - this.pitch) * kt;
     this.roll += (clamp(vr / P.maxSpeed, -1, 1) * P.tiltMax - this.roll) * kt;
@@ -145,6 +171,7 @@ export class Flight {
 
       // Ceiling and map bounds.
       const L = this.limits;
+      const ex = this.pos[0], ez = this.pos[2];
       if (L) {
         this._clampRange(0, L.minX, L.maxX);
         this._clampRange(2, L.minZ, L.maxZ);
@@ -152,6 +179,7 @@ export class Flight {
         this._clampAxis(0, P.mapHalf);
         this._clampAxis(2, P.mapHalf);
       }
+      this.atEdge = ex !== this.pos[0] || ez !== this.pos[2];
       // Batas atas drone asli: 120 m dari titik lepas landas (default DJI), dan tak lebih dari 120 m di atas tanah
       // (aturan 400 ft). Di lereng tetap boleh naik minimal 30 m di atas tanah agar tidak tersangkut gunung.
       // Tidak ada tembok: melewati batas memberi peringatan ALT_GRACE detik, lalu motor dan baterai rusak

@@ -16,5 +16,6 @@ export const PHYS = {
   landSpeed: 1.5,     // m/s
   radius: 0.5,        // m, collision sphere
   maxAlt: 50,         // m, ceiling (matches takeoff(h) limit)
-  mapHalf: 100,       // m, world is [-mapHalf, mapHalf] on X and Z
+  mapHalf: 100,
+  windResist: 10.7,   // m/s, angin terkuat yang masih bisa ditahan (DJI level 5)       // m, world is [-mapHalf, mapHalf] on X and Z
 };
