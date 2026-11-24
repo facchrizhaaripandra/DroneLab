@@ -6,6 +6,7 @@
 # Writes public/scenes/<id>/scene.glb and scene.json:
 #   scene.json = spawn offset, flight bounds, ground heightfield and AABB colliders,
 #   all in simulator coordinates (Three.js: Y up, Blender +Y = -Z), shifted so the spawn point is (0, 0, 0).
+# After exporting, run  node scripts/water_grid.mjs <id>  to add the water surface and bed (and open pool basins).
 import bpy, os, json, time
 import numpy as np
 from mathutils import Vector

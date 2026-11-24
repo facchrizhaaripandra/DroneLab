@@ -4,6 +4,7 @@
 import { PHYS } from './config.js';
 import { resolveSphereBoxes } from './collision.js';
 import { SAFE_SPEED } from './damage.js';
+import { partDepths, SOAK_ROTOR, SOAK_CAMERA, SINK_SPEED, SPLASH_SPEED } from './water.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -51,6 +52,13 @@ export class Flight {
     // { minX, maxX, minZ, maxZ, maxAgl }. Null = the flat generated world (ground 0, PHYS.mapHalf, PHYS.maxAlt).
     this.ground = null;
     this.limits = null;
+    // Air (water.js makeWater): { surface(x, z), bed(x, z) } -> y atau NaN bila kering. Null = tanpa air.
+    this.water = null;
+    this.waterBelow = NaN;       // permukaan air di bawah drone (NaN = bukan di atas air)
+    this.wet = { rotors: [0, 0, 0, 0], camera: 0, body: 0 }; // kedalaman tiap bagian di bawah air (m)
+    this.inWater = false;        // ada bagian drone yang terendam
+    this.drowned = false;        // badan drone terendam: tenggelam
+    this.onWater = null;         // dipanggil dengan 'splash' (masuk air) atau 'drown' (tenggelam)
     // Previous-step pose, used by the renderer to interpolate between fixed steps.
     this.prevPos = [0, 0, 0];
     this.prevYaw = 0;
@@ -83,8 +91,20 @@ export class Flight {
     return true;
   }
 
-  // Ground height under the drone (0 in the flat generated world).
-  groundY() { return this.ground ? this.ground(this.pos[0], this.pos[2]) : 0; }
+  // Ground height under the drone (0 in the flat generated world). Over water this is the bottom (lake bed, pool floor).
+  groundY() {
+    const g = this.ground ? this.ground(this.pos[0], this.pos[2]) : 0;
+    if (this.water) { const b = this.water.bed(this.pos[0], this.pos[2]); if (b === b && b < g) return b; }
+    return g;
+  }
+
+  // Ground or water surface under the drone, whichever is higher (for the altitude limit and the landing approach).
+  surfaceY() {
+    const g = this.groundY();
+    if (!this.water) return g;
+    const s = this.water.surface(this.pos[0], this.pos[2]);
+    return s === s && s > g ? s : g;
+  }
 
   // `world` is a list of AABBs or a physics object from physics.js (Rapier or AABB).
   step(dt, world = []) {
@@ -116,7 +136,7 @@ export class Flight {
       tvy = a.climb * P.maxClimb * fxd.climbScale - fxd.sink;
       tyaw = a.yaw * P.maxYawRate + fxd.yawBias;
     } else if (this.mode === 'landing') {
-      tvy = -clamp(0.4 + (this.pos[1] - this.groundY()) * 1.1, 0.4, P.landSpeed);
+      tvy = -clamp(0.4 + (this.pos[1] - this.surfaceY()) * 1.1, 0.4, P.landSpeed);
     }
 
     // Angin. Udara bergerak windVel (angin rata-rata + hembusan). Drone dengan GPS menahan posisinya, jadi angin rata-rata
@@ -185,7 +205,7 @@ export class Flight {
       // Tidak ada tembok: melewati batas memberi peringatan ALT_GRACE detik, lalu motor dan baterai rusak
       // sampai drone gagal di ALT_FAIL detik (tanpa peta realistis, langit-langit lama 50 m tetap tembok).
       if (L) {
-        const gy = this.groundY();
+        const gy = this.surfaceY();
         this.ceiling = Math.min(gy + L.maxAgl, Math.max(this.homeY + L.maxAgl, gy + 30));
         if (this.pos[1] > this.ceiling) {
           this.overTime += dt;
@@ -209,7 +229,7 @@ export class Flight {
 
       // Uneven ground (realistic scenes): never sink into the terrain. Flying into a slope fast counts as a hit.
       const g = this.groundY();
-      if (this.ground && this.pos[1] < g) {
+      if ((this.ground || this.water) && this.pos[1] < g) {
         this.pos[1] = g;
         const hs = Math.hypot(this.vel[0], this.vel[2]);
         if (this.vel[1] < 0) this.vel[1] = 0;
@@ -229,6 +249,44 @@ export class Flight {
         this.mode = 'landed';
       }
     }
+    this._stepWater(dt);
+  }
+
+  // Air: bagian yang terendam rusak (baling-baling, kamera); badan terendam = tenggelam. Air juga menahan gerak.
+  _stepWater(dt) {
+    const W = this.water, w = this.wet;
+    if (!W) return;
+    const wasWet = this.inWater;
+    this.waterBelow = W.surface(this.pos[0], this.pos[2]);
+    partDepths(W, this.pos, this.yaw, this.pitch + this.leanPitch, this.roll + this.leanRoll, w);
+    this.inWater = w.body > 0 || w.camera > 0 || w.rotors[0] > 0 || w.rotors[1] > 0 || w.rotors[2] > 0 || w.rotors[3] > 0;
+    if (!this.inWater) return;
+    const dmg = this.damage;
+    if (!wasWet) {
+      if (this.onWater) this.onWater('splash');
+      const down = -this.vel[1];
+      if (dmg && down > SPLASH_SPEED) { // menghantam air terlalu cepat terasa seperti menabrak permukaan keras
+        const ch = dmg.hit(0, 1, 0, down * 0.6, this.yaw);
+        if (ch.length && this.onDamage) this.onDamage(ch);
+      }
+    }
+    // Air jauh lebih kental dari udara: gerak melambat cepat.
+    const kh = Math.exp(-dt * 2.5), kv = Math.exp(-dt * 4);
+    this.vel[0] *= kh; this.vel[2] *= kh; this.vel[1] *= kv;
+    if (!dmg) return;
+    if (w.body > 0) { this._drown(); return; }
+    const r = this._soak || (this._soak = [0, 0, 0, 0]);
+    for (let i = 0; i < 4; i++) r[i] = w.rotors[i] > 0 ? SOAK_ROTOR * dt : 0;
+    const ch = dmg.soak(r, w.camera > 0 ? SOAK_CAMERA * dt : 0);
+    if (ch.length && this.onDamage) this.onDamage(ch);
+  }
+
+  _drown() {
+    if (this.drowned) return;
+    this.drowned = true;
+    if (this.damage) { const ch = this.damage.drown(); if (ch.length && this.onDamage) this.onDamage(ch); }
+    this.mode = 'crashed';
+    if (this.onWater) this.onWater('drown');
   }
 
   _collide(world, radius) {
@@ -240,6 +298,20 @@ export class Flight {
 
   // A destroyed drone: no control, falls with gravity, slides to a stop.
   _stepCrashed(dt, world) {
+    // Di dalam air: tenggelam pelan ke dasar, tidak jatuh bebas.
+    const ws = this.water ? this.water.surface(this.pos[0], this.pos[2]) : NaN;
+    if (ws === ws && this.pos[1] < ws) {
+      if (!this.drowned) this._drown();
+      this.vel[1] += (-SINK_SPEED - this.vel[1]) * (1 - Math.exp(-dt * 3));
+      const kw = Math.exp(-dt * 3);
+      this.vel[0] *= kw; this.vel[2] *= kw; this.yawRate *= kw;
+      this.pitch += (20 - this.pitch) * (1 - Math.exp(-dt));
+      for (let i = 0; i < 3; i++) this.pos[i] += this.vel[i] * dt;
+      const gb = this.groundY();
+      if (this.pos[1] <= gb) { this.pos[1] = gb; this.vel[0] = this.vel[1] = this.vel[2] = 0; this.yawRate = 0; }
+      this.waterBelow = ws; this.inWater = true;
+      return;
+    }
     this.vel[1] -= GRAVITY * dt;
     const k = Math.exp(-dt * 0.8);
     this.vel[0] *= k; this.vel[2] *= k;

@@ -64,6 +64,24 @@ export class DroneDamage {
     return this._diff(before);
   }
 
+  // Air pada bagian tertentu: hanya bagian yang terendam yang rusak. rotors = jumlah kerusakan per baling-baling
+  // (0..1), camera = jumlah kerusakan kamera. Perubahan ditandai cause 'water'.
+  soak(rotors, camera) {
+    const before = this._states();
+    for (let i = 0; i < 4; i++) if (rotors[i] > 0) this.rotors[i] = Math.max(0, this.rotors[i] - rotors[i]);
+    if (camera > 0) this.camera = Math.max(0, this.camera - camera);
+    this.refresh();
+    return this._diff(before).map((c) => ({ ...c, cause: 'water' }));
+  }
+
+  // Badan terendam: air masuk ke baterai dan flight controller. Drone mati total.
+  drown() {
+    const before = this._states();
+    this.body = 0; this.battery = 0;
+    this.refresh();
+    return this._diff(before).map((c) => ({ ...c, cause: 'water' }));
+  }
+
   refresh() {
     const r = this.rotors, f = this.fx;
     const lift = (r[0] + r[1] + r[2] + r[3]) / 4;

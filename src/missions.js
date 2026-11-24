@@ -33,7 +33,7 @@ export class MissionRun {
     this.t = 0;                 // s since first takeoff
     this.started = false;
     this.done = false;
-    this.reason = null;         // completed | timeout | battery | crashed
+    this.reason = null;         // completed | timeout | battery | crashed | drowned
     this.progress = 0;          // 0..1
     this.log = [];
     this.limitS = this.def.par_time_s * 2;
@@ -139,7 +139,7 @@ export class MissionRun {
     else if (id === 'm5_inspeksi') this._stepInspeksi(landedHome);
 
     if (this.done) return;
-    if (sim.mode === 'crashed') this._finish('crashed');
+    if (sim.mode === 'crashed') this._finish(sim.drowned ? 'drowned' : 'crashed');
     else if (batteryLevel <= 0) this._finish('battery');
     else if (this.t > this.limitS) this._finish('timeout');
   }

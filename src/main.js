@@ -31,6 +31,7 @@ import { AdaptiveQuality } from './quality.js';
 import { MISSIONS, getMission, MissionRun } from './missions.js';
 import { Battery } from './battery.js';
 import { AabbPhysics, createPhysics } from './physics.js';
+import { makeWater, missionWaterZones, WATER_WARN } from './water.js';
 import { DroneDamage } from './damage.js';
 import { createGateway } from './gateway.js';
 import { events } from './events.js';
@@ -72,7 +73,10 @@ let physics = new AabbPhysics();   // replaced by Rapier as soon as it has loade
 physics.setStatic(world.colliders);
 let sim = new Flight();
 const drone = createDrone(scene);
+let worldWater = makeWater();  // air di dunia yang sedang dimuat (water.js)
 newSim();
+// Hanya saat npm run dev: akses simulasi dari konsol browser untuk uji coba (window.__dronelab.sim).
+if (import.meta.env && import.meta.env.DEV) window.__dronelab = { get sim() { return sim; }, get water() { return worldWater; } };
 const chase = new FollowCamera(camera);
 const input = createInput();
 const autopilot = new Autopilot();
@@ -222,6 +226,11 @@ function newSim() {
   const real = config.realScene; // realistic Blender scene: uneven ground and its own map limits
   sim.ground = real ? real.groundAt : null;
   sim.limits = real ? real.limits : null;
+  sim.water = worldWater.any ? worldWater : null; // danau, laut, sungai, kolam: drone bisa masuk dan tenggelam
+  sim.onWater = (kind) => {
+    if (kind === 'drown') { toast('Drone tenggelam! Air masuk ke baterai dan bodi'); input.rumble(1, 400); }
+    else input.rumble(0.5, 120);
+  };
   sim.onDamage = (changes) => {
     drone.setDamage(sim.damage);
     for (const c of changes) toast(damageText(c));
@@ -229,12 +238,12 @@ function newSim() {
   drone.setDamage(sim.damage);
 }
 const PART_ID = ['kiri-depan', 'kanan-depan', 'kiri-belakang', 'kanan-belakang'];
+// damage.js _diff: index 0-3 = baling-baling, 4 = kamera, 5 = rangka/bodi. cause 'water' = kena air.
 function damageText(c) {
-  const bad = c.state === 'broken';
-  if (c.part === 'rotor') return `Baling-baling ${PART_ID[c.index]} ${bad ? 'patah!' : 'rusak'}`;
-  if (c.part === 'camera') return bad ? 'Kamera pecah: PIP mati' : 'Kamera retak';
-  if (c.part === 'battery') return bad ? 'Baterai bocor parah!' : 'Baterai rusak: boros';
-  return bad ? 'Bodi hancur!' : 'Bodi retak';
+  const bad = c.state === 'broken', wet = c.cause === 'water';
+  if (c.index < 4) return wet ? `Baling-baling ${PART_ID[c.index]} kena air: ${bad ? 'motor mati!' : 'melemah'}` : `Baling-baling ${PART_ID[c.index]} ${bad ? 'patah!' : 'rusak'}`;
+  if (c.index === 4) return wet ? (bad ? 'Kamera kena air: mati, PIP hilang' : 'Kamera kena air: gambar terganggu') : (bad ? 'Kamera pecah: PIP mati' : 'Kamera retak');
+  return wet ? (bad ? 'Bodi terendam: rusak total' : 'Bodi basah') : (bad ? 'Bodi hancur!' : 'Bodi retak');
 }
 
 // Replace the world, the drone state and the HUD map in one place (used by every mission start).
@@ -245,6 +254,7 @@ function loadWorld(cfg) {
   config.wind = randomWind();
   config.clouds = { cover: 0.2 + Math.random() * 0.45, seed: Math.random() * 10 };
   world = buildWorld(scene, config);
+  worldWater = makeWater({ grid: config.realScene ? config.realScene.water : null, zones: missionWaterZones(config.mission) });
   world.setShadows(aq.effective(settings.graphics).shadows);
   aq.holdFor(4); // a new world compiles shaders and warms caches: do not judge FPS yet
   seenHits = 0;
@@ -678,6 +688,7 @@ function updateHud(now) {
   }, now);
   hud.setFireWarn(fireHeat.level > 0 || fireHeat.near < FIRE_WARN ? fireHeat : null);
   hud.setAltWarn(sim.overTime > 0 && sim.mode !== 'landed' && sim.mode !== 'crashed' ? { t: sim.overTime, grace: ALT_GRACE, fail: ALT_FAIL } : null);
+  hud.setWaterWarn(waterWarn());
   hud.setBadges({ rec: run && run.recording, thermal, spray: run && run.spraying });
   if (run) {
     if (run.spraying && sim.mode !== 'flying') run.setSpray(false, sim); // landed or crashed: the nozzle closes
@@ -695,6 +706,19 @@ function updateHud(now) {
   }
 }
 let lastDose = -1, lastPaint = 0;
+
+// Peringatan air: terbang rendah di atas air, atau ada bagian yang sudah terendam.
+function waterWarn() {
+  if (!sim.water || sim.mode === 'crashed' || sim.mode === 'landed' && !sim.inWater) return null;
+  const s = sim.waterBelow;
+  if (s !== s) return null;
+  const w = sim.wet, parts = [];
+  if (w.rotors.some((d) => d > 0)) parts.push('Baling-baling');
+  if (w.camera > 0) parts.push('Kamera');
+  if (parts.length) return { h: 0, wet: parts.join(' dan ') };
+  const h = sim.pos[1] - s;
+  return h < WATER_WARN ? { h: Math.max(0, h), wet: '' } : null;
+}
 
 // Menu backdrop camera: circles the parked drone low and slow, so the title sits over a living scene.
 const _orbitLook = new THREE.Vector3();

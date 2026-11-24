@@ -47,7 +47,7 @@ export function missionSpec(list, gatewayMode, cb) {
 }
 
 const SEVERITY = { ringan: 'ringan', sedang: 'sedang', berat: 'berat' };
-const REASON = { completed: 'Selesai', timeout: 'Waktu habis', battery: 'Baterai habis', crashed: 'Jatuh' };
+const REASON = { completed: 'Selesai', timeout: 'Waktu habis', battery: 'Baterai habis', crashed: 'Jatuh', drowned: 'Tenggelam' };
 const GRADE = { gold: 'Emas', silver: 'Perak', bronze: 'Perunggu', none: 'Belum ada peringkat' };
 
 // res: { score, grade, breakdown } or null; official: true only for a score computed by the gateway.

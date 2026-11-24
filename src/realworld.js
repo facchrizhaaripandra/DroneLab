@@ -89,6 +89,7 @@ export function prepareScene({ meta, gltf }) {
     limits: sceneLimits(meta),
     mapBoxes: sceneMapBoxes(meta.mapBoxes),
     groundMin: Number.isFinite(groundMin) ? groundMin : 0,
+    water: meta.water || null, // permukaan dan dasar air (scripts/water_grid.mjs, water.js)
     fires: meta.fires || [], // sumber api untuk animasi kebakaran (fire.js), koordinat dunia
     bounds: Math.ceil(Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ))),
     title: meta.title,

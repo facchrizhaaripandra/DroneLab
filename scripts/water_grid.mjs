@@ -122,6 +122,17 @@ export function buildWater(meta, items) {
     let fx = Math.min(Math.max((x - h.x0) / h.cell, 0), h.nx - 1), fz = Math.min(Math.max((z - h.z0) / h.cell, 0), h.nz - 1);
     return h.data[Math.round(fz) * h.nx + Math.round(fx)];
   };
+  // Pools, ponds, fountains: their basin is exported as a solid box whose top is at the water line. carveBasins opens it.
+  const basins = [];
+  for (const it of water) {
+    const md = (MODEL_DEPTH.find(([re]) => re.test(it.name)) || [0, 0])[1];
+    if (!md) continue;
+    const b = [Infinity, -Infinity, Infinity, Infinity, -Infinity, -Infinity]; // minX, surf, minZ, maxX, -, maxZ
+    for (const t of it.parts) for (let k = 0; k < t.length; k += 3) {
+      b[0] = Math.min(b[0], t[k]); b[3] = Math.max(b[3], t[k]); b[2] = Math.min(b[2], t[k + 2]); b[5] = Math.max(b[5], t[k + 2]); b[1] = Math.max(b[1], t[k + 1]);
+    }
+    basins.push({ name: it.name, min: [b[0], b[2]], max: [b[3], b[5]], surf: b[1], bed: b[1] - md });
+  }
   const runs = []; let cells = 0;
   for (let j = 0; j < g.nz; j++) {
     let run = null;
@@ -136,7 +147,31 @@ export function buildWater(meta, items) {
       run.push(b); cells++;
     }
   }
-  return { x0: g.x0, z0: g.z0, cell, nx: g.nx, nz: g.nz, runs, cells };
+  return { x0: g.x0, z0: g.z0, cell, nx: g.nx, nz: g.nz, runs, cells, basins };
+}
+
+// Colliders [minX, minY, minZ, maxX, maxY, maxZ] whose top sits at a basin's water line are split: the part outside
+// the basin keeps its height, the part under the water drops to the basin floor (the drone can sink into the pool).
+export function carveBasins(colliders, basins) {
+  let carved = 0;
+  for (const bs of basins) {
+    const [ax, az] = bs.min, [bx, bz] = bs.max;
+    const out = [];
+    for (const c of colliders) {
+      const ox = Math.min(c[3], bx) - Math.max(c[0], ax), oz = Math.min(c[5], bz) - Math.max(c[2], az);
+      if (ox < 0.3 || oz < 0.3 || c[4] < bs.surf - 0.5 || c[4] > bs.surf + 0.05 || c[4] <= bs.bed + 0.01) { out.push(c); continue; }
+      const r = (v) => Math.round(v * 100) / 100;
+      const ix0 = Math.max(c[0], ax), ix1 = Math.min(c[3], bx), iz0 = Math.max(c[2], az), iz1 = Math.min(c[5], bz);
+      if (c[0] < ix0) out.push([c[0], c[1], c[2], r(ix0), c[4], c[5]]);
+      if (c[3] > ix1) out.push([r(ix1), c[1], c[2], c[3], c[4], c[5]]);
+      if (c[2] < iz0) out.push([r(ix0), c[1], c[2], r(ix1), c[4], r(iz0)]);
+      if (c[5] > iz1) out.push([r(ix0), c[1], r(iz1), r(ix1), c[4], c[5]]);
+      if (c[1] < bs.bed - 0.01) out.push([r(ix0), c[1], r(iz0), r(ix1), r(bs.bed), r(iz1)]); // under the water: only up to the floor
+      carved++;
+    }
+    colliders = out;
+  }
+  return { colliders, carved };
 }
 
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
@@ -145,8 +180,12 @@ if (isMain) {
   for (const id of ids) {
     const jf = new URL(`${id}/scene.json`, ROOT), meta = JSON.parse(fs.readFileSync(jf));
     const w = buildWater(meta, readGlb(new URL(`${id}/scene.glb`, ROOT)));
-    if (w && w.cells) { const { cells, ...rest } = w; meta.water = rest; } else delete meta.water;
+    let carved = 0;
+    if (w && w.cells) {
+      const { cells, basins, ...rest } = w; meta.water = rest;
+      ({ colliders: meta.colliders, carved } = carveBasins(meta.colliders, basins));
+    } else delete meta.water;
     fs.writeFileSync(jf, JSON.stringify(meta));
-    console.log(id, w ? `${w.cells} sel air (${w.cell} m), ${w.runs.length} baris` : 'tanpa air');
+    console.log(id, w ? `${w.cells} sel air (${w.cell} m), ${w.runs.length} baris` : 'tanpa air', carved ? `, ${carved} collider kolam dibuka` : '');
   }
 }

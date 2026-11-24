@@ -391,3 +391,15 @@ Eksportir Blender (`scripts/blender/export_scene.py`) tidak lagi membuat satu ko
 - `MERGE_MAX = 7 m`: dua bagian tidak digabung bila hasilnya lebih lebar dari 7 m.
 
 Setelah mengubah eksportir, ekspor ulang semua peta. `tests/atrium.test.js` memeriksa bahwa lubang tengah S1 terbuka dari lantai sampai atap dan drone bisa turun lewat situ.
+
+## Air: tenggelam dan kerusakan per bagian
+
+Danau, laut, sungai, kanal, kolam renang, kolam ikan dan air mancur tidak lagi seperti daratan. Drone bisa masuk ke air (`src/water.js`, `Flight._stepWater`):
+
+- Bagian yang terendam saja yang rusak. Baling-baling yang kena air rusak dalam ±0,3 detik (`SOAK_ROTOR`), kamera dalam ±0,5 detik (`SOAK_CAMERA`).
+- Badan terendam berarti air masuk ke baterai dan bodi: drone tenggelam, mati, dan turun pelan ke dasar. Misi berakhir dengan alasan "Tenggelam".
+- Menghantam air dengan kecepatan turun di atas 4 m/s dihitung seperti tabrakan. Air juga memperlambat gerak.
+- Air dangkal seperti sawah (< 3 cm) tidak ditulis sebagai air. Di kanal 25 cm, drone yang mendarat hanya rusak kameranya.
+- HUD menampilkan peringatan biru saat drone kurang dari 3 m di atas air, atau saat ada bagian yang terendam.
+
+Data air peta realistis dibuat dari `scene.glb` oleh `node scripts/water_grid.mjs [id]`, lalu ditulis ke `scene.json` sebagai `water`. Datanya berisi permukaan dan dasar air per sel 1 m. Dasar diambil dari permukaan benda tertinggi di bawah air. Kolam yang dimodelkan sebagai pelat tipis diberi kedalaman 1,4 m, kolam ikan 0,8 m, dan air mancur 0,4 m. Kotak tabrakan dasar kolam yang atasnya setinggi permukaan air dibuka sampai lantai kolam. Script ini aman dijalankan berulang. Dunia misi prosedural memakai zona danau, kolam renang dan sungai M3 (`missionWaterZones`).

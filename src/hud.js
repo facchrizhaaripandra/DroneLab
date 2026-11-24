@@ -47,6 +47,7 @@ export function createHud(root, config) {
     <div id="hint" class="panel"></div>
     <div id="altwarn" class="panel"></div>
     <div id="firewarn" class="panel"></div>
+    <div id="waterwarn" class="panel"></div>
     <div id="badges"></div>
     <div id="flash"></div>
     <div id="toast" class="panel"></div>
@@ -57,7 +58,7 @@ export function createHud(root, config) {
     alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), wind: $('t-wind'), warrow: $('t-wa'), dmg: $('t-dmg'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
     title: $('g-title'), gw: $('s-gw'), ai: $('s-ai'), side: $('side'), sideRows: $('side-rows'),
-    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), zoomtag: $('zoomtag'), zoomfs: $('zoomfs'), altwarn: $('altwarn'), firewarn: $('firewarn'), flash: $('flash'),
+    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), zoomtag: $('zoomtag'), zoomfs: $('zoomfs'), altwarn: $('altwarn'), firewarn: $('firewarn'), waterwarn: $('waterwarn'), flash: $('flash'),
   };
 
   // Minimap: static layer (buildings, obstacles, pad, mission spots) drawn once per world at full world size;
@@ -128,7 +129,7 @@ export function createHud(root, config) {
   drawStatic(config);
 
   let toastUntil = 0;
-  let lastAlt = '', lastFire = '', lastWindRel = -1;
+  let lastAlt = '', lastFire = '', lastWater = '', lastWindRel = -1;
   let pipOn = true;
   let lastZoom = '', lastZoomFull = null;
   const pipEl = root.querySelector('#pip');
@@ -181,6 +182,16 @@ export function createHud(root, config) {
       const hot = w.level > 0;
       el.firewarn.classList.toggle('danger', hot);
       el.firewarn.textContent = hot ? 'Terkena panas api! Drone rusak. Menjauh sekarang' : `Terlalu dekat api (${Math.ceil(w.near)} m). Menjauh`;
+    },
+    // Air: w = null | { h: tinggi di atas air (m), wet: bagian terendam ('baling-baling', 'kamera') atau '' }.
+    setWaterWarn(w) {
+      const key = !w ? '' : w.wet ? `w${w.wet}` : `h${Math.ceil(w.h)}`;
+      if (key === lastWater) return;
+      lastWater = key;
+      el.waterwarn.style.display = w ? 'block' : 'none';
+      if (!w) return;
+      el.waterwarn.classList.toggle('danger', !!w.wet);
+      el.waterwarn.textContent = w.wet ? `${w.wet} kena air! Naik sekarang` : `Di atas air (${Math.ceil(w.h)} m). Jangan turun lebih rendah`;
     },
     // Sudut gimbal dan zoom kamera drone: di label popup, dan di atas layar saat layar penuh (mode kamera depan).
     setZoom(z, full, pitch = -10, roll = 0) {
