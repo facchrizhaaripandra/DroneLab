@@ -403,3 +403,39 @@ Danau, laut, sungai, kanal, kolam renang, kolam ikan dan air mancur tidak lagi s
 - HUD menampilkan peringatan biru saat drone kurang dari 3 m di atas air, atau saat ada bagian yang terendam.
 
 Data air peta realistis dibuat dari `scene.glb` oleh `node scripts/water_grid.mjs [id]`, lalu ditulis ke `scene.json` sebagai `water`. Datanya berisi permukaan dan dasar air per sel 1 m. Dasar diambil dari permukaan benda tertinggi di bawah air. Kolam yang dimodelkan sebagai pelat tipis diberi kedalaman 1,4 m, kolam ikan 0,8 m, dan air mancur 0,4 m. Kotak tabrakan dasar kolam yang atasnya setinggi permukaan air dibuka sampai lantai kolam. Script ini aman dijalankan berulang. Dunia misi prosedural memakai zona danau, kolam renang dan sungai M3 (`missionWaterZones`).
+
+## Gedung yang lebih realistis
+
+**Misi prosedural** (`src/buildings.js`): kotak polos diganti gedung modular. Tipenya ditentukan dari ukuran, tanpa mengubah urutan acak seed:
+
+- **ruko**: unit 4–5 m, 2–4 lantai @ 3,6 m, rolling door, kanopi, papan nama, teralis, tandon.
+- **kantor**: lobi kaca dua lantai, dinding kaca berangka tiap 1,5 m, lantai 3,8 m, sirip, mahkota, ruang mesin, AC.
+- **apartemen** dan **hotel**: lantai 3 m, balkon berpagar.
+- **gudang**: seng, atap pelana, pintu muat.
+- **terbuka**: rangka gedung terbakar di misi SAR. Lantai terbuka, kolom, inti tangga; satu korban berada di lantai 2.
+- **inspeksi**: muka rata panel pracetak, gondola BMU di atap.
+
+Jembatan M5 mendapat aspal, kerb, pagar, lampu, gelagar dan kepala pilar, tanpa menutupi muka dek tempat cacat. Jendela, kaca, rolling door, panel dan seng digambar shader dari atribut `aFac`. Semua gedung digabung jadi satu mesh.
+
+**Peta realistis** (skrip Blender di `scripts/blender/`):
+
+- `bld_geom.py`: generator geometri murni Python, bisa diuji tanpa Blender.
+- `bld_lib.py`: adapter ke Blender.
+- `s6_upgrade.py`: kota (kantor, menara, rumah sakit, gudang, pasar, rumah, detail ruko).
+- `s3_upgrade.py`: resor; hotel ≤ 15 m berundak, atap tumpang, villa, bale, angkul-angkul, kolam berongga 1,4 m.
+- `s1_upgrade.py`: pintu di partisi dan korban di dalam gedung.
+- `s7_upgrade.py`, `s7b_upgrade.py`: kanopi lobi, BMU, balok portal, tangga inspeksi, lampu jembatan.
+- `s5_upgrade.py`: rumah petani, mushola, pos ronda, warung.
+
+Tiap skrip membuka versi `.blend` terakhir dan menyimpan versi baru (file lama tidak ditimpa). Setelah itu jalankan `reexport.py` (`reexport("<id>")`) lalu `node scripts/water_grid.mjs <id>`.
+
+## Hitbox mengikuti bentuk
+
+Di `scripts/blender/export_scene.py`, collider dibuat supaya mengikuti bentuk yang terlihat:
+
+- **Penggabungan dibatasi.** Dua bagian yang bersentuhan hanya digabung bila kotak gabungannya ≤ 1,4 × jumlah volume keduanya (`MERGE_FILL`). Tiang dan lengan lampu lalu lintas, lampu jalan, atau daun meja dan kakinya tidak lagi jadi satu blok, jadi drone bisa lewat di bawah lengan atau meja.
+- **Bentuk jarang dipecah.** Bagian yang luas permukaannya < 0,5 × kulit kotaknya (`SPARSE`; bentuk L, T, rangka) dipecah lewat voxel (`solid_boxes`) jadi beberapa kotak.
+- **Kelapa dan palem.** Batang dibagi 3 ruas mengikuti lengkungannya, dan pelepah hanya di puncak.
+- **Detail tipis tanpa collider.** Objek buatan `bld_lib.py` menyimpan `dl_min_part`, sehingga rangka kaca, teralis, dan tiang tipis tidak jadi collider.
+
+`tests/hitbox.test.js` memeriksa bahwa drone bisa lewat di bawah lengan lampu di kawasan perkotaan.

@@ -117,6 +117,62 @@ def union_flat_boxes(flat, cell=0.5):
     return out
 
 
+SPARSE = 0.5       # luas permukaan < 0.5 x luas kulit kotaknya = bentuk jarang (L, T, rangka): dipecah dengan voxel
+MERGE_FILL = 1.4   # dua bagian hanya digabung bila kotak gabungan <= 1.4 x jumlah volume keduanya
+
+
+def solid_boxes(co, tris, mn, mx):
+    """Bentuk jarang (tiang + lengan lampu, rangka) -> beberapa kotak yang mengikuti bentuknya. Segitiga disampel ke grid
+    voxel, ruang luar diisi dari tepi (flood fill), sisanya padat, lalu dipecah rakus jadi kotak. None = cukup satu kotak."""
+    ext = np.maximum(mx - mn, 1e-3)
+    c = max(0.2, float(ext.max()) / 48.0)
+    n = np.maximum(1, np.ceil(ext / c).astype(int))
+    occ = np.zeros(tuple(n), bool)
+    A, B, C = co[tris[:, 0]], co[tris[:, 1]], co[tris[:, 2]]
+    L = np.maximum.reduce([np.linalg.norm(B - A, axis=1), np.linalg.norm(C - B, axis=1), np.linalg.norm(A - C, axis=1)])
+    k = np.clip(np.ceil(L / (0.5 * c)).astype(int), 1, 60)
+    for kk in np.unique(k):
+        sel = k == kk
+        u, v = np.meshgrid(np.arange(kk + 1), np.arange(kk + 1), indexing="ij"); m = (u + v) <= kk
+        u = u[m] / kk; v = v[m] / kk
+        a = A[sel][:, None, :]
+        P = a + (B[sel][:, None, :] - a) * u[None, :, None] + (C[sel][:, None, :] - a) * v[None, :, None]
+        idx = np.clip(np.floor((P.reshape(-1, 3) - mn) / c).astype(int), 0, n - 1)
+        occ[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+    empty = ~occ
+    out = np.zeros_like(occ)
+    for sl in ((0, slice(None), slice(None)), (-1, slice(None), slice(None)), (slice(None), 0, slice(None)),
+               (slice(None), -1, slice(None)), (slice(None), slice(None), 0), (slice(None), slice(None), -1)):
+        out[sl] |= empty[sl]
+    while True:
+        d = out.copy()
+        d[1:] |= out[:-1]; d[:-1] |= out[1:]; d[:, 1:] |= out[:, :-1]; d[:, :-1] |= out[:, 1:]; d[:, :, 1:] |= out[:, :, :-1]; d[:, :, :-1] |= out[:, :, 1:]
+        d &= empty
+        if np.array_equal(d, out): break
+        out = d
+    solid = ~out
+    if solid.mean() > 0.6: return None
+    rem = solid.copy(); res = []
+    nx, ny, nz = rem.shape
+    for i, j, kz in np.argwhere(rem):
+        if not rem[i, j, kz]: continue
+        x1 = i
+        while x1 + 1 < nx and rem[x1 + 1, j, kz]: x1 += 1
+        y1 = j
+        while y1 + 1 < ny and rem[i:x1 + 1, y1 + 1, kz].all(): y1 += 1
+        z1 = kz
+        while z1 + 1 < nz and rem[i:x1 + 1, j:y1 + 1, z1 + 1].all(): z1 += 1
+        rem[i:x1 + 1, j:y1 + 1, kz:z1 + 1] = False
+        lo = np.maximum(mn + np.array([i, j, kz]) * c, mn); hi = np.minimum(mn + np.array([x1 + 1, y1 + 1, z1 + 1]) * c, mx)
+        res.append([float(v) for v in (*lo, *hi)])
+        if len(res) > 120: return None
+    return res
+
+
+def _vol(b):
+    return max(b[3] - b[0], 0.1) * max(b[4] - b[1], 0.1) * max(b[5] - b[2], 0.1)
+
+
 def is_ground(n):
     return n.startswith(GROUND_PREFIX) or any(k in n for k in WATER_KEYS)
 
@@ -182,6 +238,25 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
             if hh < 1.2:
                 continue
             cx, cy, z0 = o.matrix_world.translation.x, o.matrix_world.translation.y, min(zs)
+            if ("palm" in n or "coconut" in n) and hh >= 4:
+                # Kelapa / palem: batang melengkung (3 ruas mengikuti titik batang) dan pelepah hanya di puncak.
+                ev = o.evaluated_get(dg); me = ev.to_mesh(); mw = o.matrix_world
+                pc = np.array([tuple(mw @ v.co) for v in me.vertices]); ev.to_mesh_clear()
+                zt = pc[:, 2].max(); cz0 = zt - min(4.5, 0.35 * hh)
+                trunk = pc[pc[:, 2] < cz0]
+                if len(trunk):
+                    for a, b in ((0.0, 0.34), (0.33, 0.67), (0.66, 1.0)):
+                        za, zb = z0 + (cz0 - z0) * a, z0 + (cz0 - z0) * b
+                        seg = trunk[(trunk[:, 2] >= za - 0.05) & (trunk[:, 2] <= zb + 0.05)]
+                        if len(seg):
+                            mn2, mx2 = seg.min(0), seg.max(0)
+                            cols.append((mn2[0] - 0.05, mn2[1] - 0.05, za, mx2[0] + 0.05, mx2[1] + 0.05, zb))
+                crown = pc[pc[:, 2] >= cz0]
+                if len(crown):
+                    mn2, mx2 = crown.min(0), crown.max(0); ccx, ccy = (mn2[0] + mx2[0]) / 2, (mn2[1] + mx2[1]) / 2
+                    rw, rd = (mx2[0] - mn2[0]) * 0.35, (mx2[1] - mn2[1]) * 0.35
+                    cols.append((ccx - rw, ccy - rd, cz0 + 0.3 * (zt - cz0), ccx + rw, ccy + rd, zt))
+                continue
             if hh < 2.5:
                 cols.append((cx - w * 0.4, cy - d * 0.4, z0, cx + w * 0.4, cy + d * 0.4, z0 + hh)); continue
             tw = min(1.2, max(0.4, 0.12 * min(w, d)))
@@ -215,17 +290,32 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
         roots = np.array([find(i) for i in range(nv)])
         order = np.argsort(roots, kind="stable"); rs = roots[order]; cs = co[order]
         boxes = []
+        if len(tr):
+            ta = 0.5 * np.linalg.norm(np.cross(co[tr[:, 1]] - co[tr[:, 0]], co[tr[:, 2]] - co[tr[:, 0]]), axis=1)
+            rid = {r: i for i, r in enumerate(np.unique(roots))}
+            area_of = np.bincount(np.array([rid[r] for r in roots[tr[:, 0]]]), weights=ta, minlength=len(rid))
+        minp = float(o.get("dl_min_part", 0.0))  # objek buatan bld_lib: rangka kaca, teralis, tiang tipis bukan collider
         cuts = np.flatnonzero(np.diff(rs)) + 1
         troot = roots[tr[:, 0]] if len(tr) else np.empty(0, np.int64)
         for g, gi in zip(np.split(cs, cuts), np.split(order, cuts)):
             mn, mx = g.min(0), g.max(0)
             if (mx - mn).max() < 0.35:
                 continue
+            if minp and min(mx[0] - mn[0], mx[1] - mn[1]) < minp:
+                continue
             if mx[2] - mn[2] < FLAT_MAX and (mx[0] - mn[0]) * (mx[1] - mn[1]) >= FLAT_AREA and len(tr):
                 fb = footprint_boxes(co, tr[troot == roots[gi[0]]], mn, mx)  # ring-shaped slab: keep the hole open
                 if fb:
                     cols += [tuple(float(v) for v in b) for b in fb]
                     continue
+            e = mx - mn
+            if len(tr) and e.max() > 1.5 and float(np.prod(np.maximum(e, 0.1))) > 1.0:
+                shell = 2 * (max(e[0], .1) * max(e[1], .1) + max(e[1], .1) * max(e[2], .1) + max(e[0], .1) * max(e[2], .1))
+                if area_of[rid[roots[gi[0]]]] < SPARSE * shell:          # bentuk jarang: ikuti bentuknya
+                    sb = solid_boxes(co, tr[troot == roots[gi[0]]], mn, mx)
+                    if sb:
+                        boxes += sb
+                        continue
             boxes.append([float(v) for v in (*mn, *mx)])
         if not n.startswith(STRUCT):
             # Floor-like parts (rooms, finishes, debris sheets) must not be merged with their neighbours: the merged box
@@ -240,8 +330,10 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
                 merged = False; outb = []
                 for b in sorted(boxes, key=lambda q: q[0]):
                     for m in outb[-40:]:
+                        u = [min(b[k], m[k]) for k in range(3)] + [max(b[k + 3], m[k + 3]) for k in range(3)]
                         if all(b[k] <= m[k + 3] + 0.05 and b[k + 3] >= m[k] - 0.05 for k in range(3)) and all(
-                                max(b[k + 3], m[k + 3]) - min(b[k], m[k]) <= MERGE_MAX for k in range(2)):  # never one box over a courtyard
+                                u[k + 3] - u[k] <= MERGE_MAX for k in range(2)) and _vol(u) <= MERGE_FILL * (_vol(b) + _vol(m)):
+                            # never one box over a courtyard, and never an L (pole + arm) as one solid block
                             for k in range(3):
                                 m[k] = min(m[k], b[k]); m[k + 3] = max(m[k + 3], b[k + 3])
                             merged = True; break

@@ -1,5 +1,6 @@
 // Pure world config generator (no Three.js, testable in Node). Same seed gives the same world.
 // Small seeded PRNG (mulberry32): the same seed always gives the same world.
+import { roofY, insideSpot } from './buildings.js';
 function rng(seed) {
   let a = seed >>> 0;
   return () => {
@@ -97,7 +98,8 @@ function m1(c, r, variant) {
     for (let i = 0; i < n; i++) {
       const b = c.buildings[(i * 5 + 2) % c.buildings.length];
       let v = null;
-      if (i === 0) v = { x: b.x, z: b.z, y: b.h };  // one victim waits on a roof
+      if (i === 0) v = { x: b.x, z: b.z, y: roofY(b) };  // one victim waits on a roof
+      else if (i === 1 && b.h >= 8) { b.type = 'terbuka'; v = { ...insideSpot(b, 1), inside: true }; } // rangka gedung terbakar: korban di lantai 2
       else {
         const side = r() < 0.5 ? -1 : 1;
         const p = { x: round2(b.x + side * (b.w / 2 + 2.5)), z: round2(b.z + (r() * 2 - 1) * b.d / 2) };
@@ -131,7 +133,7 @@ function m2(c, r, variant) {
     var main = 'puncak', second = 'danau';
   } else {
     const hx = round2(pick(r, -8, 8)), hz = -48;
-    c.buildings = [{ x: hx, z: hz, w: 30, d: 14, h: 22, shade: 0.7 }, { x: hx - 24, z: hz + 6, w: 12, d: 10, h: 12, shade: 0.4 }];
+    c.buildings = [{ x: hx, z: hz, w: 30, d: 14, h: 22, shade: 0.7, type: 'hotel' }, { x: hx - 24, z: hz + 6, w: 12, d: 10, h: 12, shade: 0.4, type: 'hotel' }];
     landmarks.push({ id: 'hotel', name: 'Fasad hotel', kind: 'box', x: hx, y: 11, z: hz + 7, hx: 15, hy: 11 });
     landmarks.push({ id: 'kolam', name: 'Kolam renang', kind: 'pool', x: round2(hx + 6), y: 0.2, z: -28, hx: 6, hy: 2, w: 12, d: 7 });
     landmarks.push({ id: 'atap', name: 'Atap hotel', kind: 'roof', x: hx, y: 22, z: hz, hx: 15, hy: 2 });
@@ -183,7 +185,7 @@ function m5(c, r, variant) {
   } else {
     s = { x: ctr.x, z: ctr.z, w: 16, d: 12, y0: 0, y1: 20 };
     c.buildings = c.buildings.filter((b) => Math.hypot(b.x - s.x, b.z - s.z) > 30);
-    c.buildings.push({ x: s.x, z: s.z, w: s.w, d: s.d, h: 20, shade: 0.55 });
+    c.buildings.push({ x: s.x, z: s.z, w: s.w, d: s.d, h: 20, shade: 0.55, type: 'inspeksi' });
   }
   const panels = [];
   for (const f of faces) {

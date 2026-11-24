@@ -19,15 +19,23 @@ export async function loadSceneIndex() {
 }
 
 // onProgress(0..1) while the .glb downloads. Throws if the files are missing.
+// scene.json (collider, air, api) selalu dibaca baru: setelah peta diekspor ulang, memilih peta yang sama dari menu
+// langsung memakai collider terbaru. Model .glb dipakai ulang dari memori selama ETag/Last-Modified-nya sama.
 export async function loadScene(id, onProgress = () => {}) {
-  if (cache.has(id)) return cache.get(id);
-  const r = await fetch(`${BASE}/${id}/scene.json`);
+  const r = await fetch(`${BASE}/${id}/scene.json`, { cache: 'no-cache' });
   if (!r.ok) throw new Error(`scene.json ${r.status}`);
   const meta = await r.json();
-  const gltf = await new GLTFLoader().loadAsync(`${BASE}/${id}/scene.glb`, (e) => {
+  let glbTag = '';
+  try {
+    const h = await fetch(`${BASE}/${id}/scene.glb`, { method: 'HEAD', cache: 'no-cache' });
+    glbTag = h.headers.get('etag') || h.headers.get('last-modified') || '';
+  } catch { /* tanpa server yang menjawab HEAD: anggap model sama */ }
+  const old = cache.get(id);
+  if (old && old.glbTag === glbTag) { old.meta = meta; return old; }
+  const gltf = await new GLTFLoader().loadAsync(`${BASE}/${id}/scene.glb${glbTag ? `?v=${encodeURIComponent(glbTag)}` : ''}`, (e) => {
     if (e.total) onProgress(e.loaded / e.total);
   });
-  const entry = { meta, gltf };
+  const entry = { meta, gltf, glbTag };
   cache.clear();
   cache.set(id, entry);
   return entry;

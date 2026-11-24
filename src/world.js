@@ -7,6 +7,7 @@ import { makeAgri, cellState } from './agri.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createFireField } from './fire.js';
 import { createSky, createBackdrop, HAZE } from './sky.js';
+import { buildingLayout, buildingColliders, bridgeLayout } from './buildings.js';
 
 // Realistic tree models (public/models/trees.glb, built in Blender from photographed leaves). Loaded once; until
 // they arrive (or if the file is missing) the forest is drawn with the simple cone trees.
@@ -81,35 +82,121 @@ function radialTexture(stops) {
 const puffTexture = () => puffTex || (puffTex = radialTexture([[0, 'rgba(255,255,255,1)'], [0.45, 'rgba(255,255,255,0.75)'], [1, 'rgba(255,255,255,0)']]));
 const glowTexture = () => glowTex || (glowTex = radialTexture([[0, 'rgba(255,240,190,1)'], [0.3, 'rgba(255,170,60,0.8)'], [1, 'rgba(255,90,20,0)']]));
 
-// Generated buildings get windows and floor lines in the shader (no textures): glass bays every 2.8 m,
-// floors every 3.4 m, each pane a slightly different tint. Roofs are a little darker.
-function facadeMaterial() {
-  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+// Gedung prosedural (buildings.js): semua bagian digabung jadi satu mesh berwarna per titik. Jendela, rangka kaca,
+// rolling door, panel pracetak dan seng digambar di shader dari atribut aFac = (gaya, lebar bay, tinggi lantai).
+function buildingMaterial() {
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vDlPos;\nvarying vec3 vDlN;')
+      .replace('#include <common>', '#include <common>\nattribute vec3 aFac;\nvarying vec3 vDlPos;\nvarying vec3 vDlN;\nvarying vec3 vFac;')
       .replace('#include <project_vertex>', `#include <project_vertex>
-        #ifdef USE_INSTANCING
-          vDlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
-        #else
-          vDlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        #endif
-        vDlN = objectNormal;`);
+        vDlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vDlN = objectNormal; vFac = aFac;`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vDlPos;\nvarying vec3 vDlN;')
+      .replace('#include <common>', `#include <common>
+        varying vec3 vDlPos;\nvarying vec3 vDlN;\nvarying vec3 vFac;
+        float dlHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        float box2(vec2 c, float x0, float x1, float y0, float y1) { return step(x0, c.x) * step(c.x, x1) * step(y0, c.y) * step(c.y, y1); }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float side = 1.0 - step(0.5, abs(vDlN.y));
-        vec2 fp = vec2(abs(vDlN.x) > 0.5 ? vDlPos.z : vDlPos.x, vDlPos.y);
-        vec2 cellId = floor(fp / vec2(2.8, 3.4));
-        vec2 cell = fract(fp / vec2(2.8, 3.4));
-        float win = step(0.16, cell.x) * step(cell.x, 0.84) * step(0.3, cell.y) * step(cell.y, 0.86) * step(1.0, vDlPos.y);
-        float rnd = fract(sin(dot(cellId, vec2(12.9898, 78.233))) * 43758.5453);
-        vec3 glass = mix(vec3(0.09, 0.13, 0.17), vec3(0.36, 0.46, 0.54), rnd * rnd);
-        diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * side);
-        diffuseColor.rgb *= 1.0 - step(cell.y, 0.05) * 0.18 * side;
-        diffuseColor.rgb *= mix(1.0, 0.82, 1.0 - side);`);
+        float st = floor(vFac.x + 0.5);
+        if (st > 0.5 && side > 0.5) {
+          vec2 fp = vec2(abs(vDlN.x) > 0.5 ? vDlPos.z : vDlPos.x, vDlPos.y);
+          vec2 cs = max(vFac.yz, vec2(0.2));
+          vec2 id = floor(fp / cs), c = fract(fp / cs);
+          float rnd = dlHash(id);
+          vec3 base = diffuseColor.rgb;
+          vec3 glass = mix(vec3(0.10, 0.15, 0.20), vec3(0.38, 0.50, 0.60), clamp(rnd * 0.55 + fp.y * 0.008, 0.0, 1.0));
+          if (st < 1.5) { // dinding kaca: rangka tipis, panel spandrel di tiap lantai
+            vec3 g = mix(vec3(0.17, 0.27, 0.35), vec3(0.50, 0.63, 0.72), clamp(fp.y * 0.012 + rnd * 0.18, 0.0, 1.0));
+            vec3 col = c.y < 0.24 ? vec3(0.20, 0.24, 0.28) : g;
+            float frameM = 1.0 - box2(c, 0.04, 0.96, 0.03, 1.0);
+            diffuseColor.rgb = mix(col, base * 0.6, frameM);
+          } else if (st < 2.5) { // jendela berbingkai
+            float win = box2(c, 0.22, 0.78, 0.30, 0.84), fr = box2(c, 0.19, 0.81, 0.27, 0.87) - win;
+            diffuseColor.rgb = mix(base, vec3(0.92), fr * 0.7);
+            diffuseColor.rgb = mix(diffuseColor.rgb, glass, win);
+            diffuseColor.rgb *= 1.0 - step(c.y, 0.05) * 0.12;
+          } else if (st < 3.5) { // ruko: rolling door di lantai dasar, jendela di atas
+            if (fp.y < cs.y) {
+              float door = box2(vec2(fract(fp.x / (cs.x * 2.0)), fp.y / cs.y), 0.06, 0.94, 0.0, 0.8);
+              vec3 sh = vec3(0.60, 0.62, 0.64) * (0.88 + 0.12 * step(0.5, fract(fp.y * 7.0)));
+              diffuseColor.rgb = mix(base, sh, door);
+            } else {
+              float win = box2(c, 0.18, 0.82, 0.32, 0.82), fr = box2(c, 0.15, 0.85, 0.29, 0.85) - win;
+              diffuseColor.rgb = mix(base, vec3(0.30, 0.25, 0.22), fr);
+              diffuseColor.rgb = mix(diffuseColor.rgb, glass, win);
+            }
+          } else if (st < 4.5) { // panel pracetak: garis sambungan, jendela lajur
+            float joint = 1.0 - box2(c, 0.012, 0.988, 0.015, 1.0);
+            float win = box2(c, 0.12, 0.88, 0.44, 0.80);
+            diffuseColor.rgb = mix(base, glass, win);
+            diffuseColor.rgb = mix(diffuseColor.rgb, base * 0.55, joint);
+          } else if (st < 5.5) { // seng bergelombang
+            diffuseColor.rgb = base * (0.84 + 0.16 * step(0.5, fract(fp.x * 5.0)));
+          } else if (st < 6.5) { // kaca lobi tinggi
+            float pane = box2(c, 0.03, 0.97, 0.0, 0.86);
+            diffuseColor.rgb = mix(base, mix(glass, vec3(0.55, 0.64, 0.70), 0.25), pane);
+          } else { // rangka hangus: lubang jendela gelap, jelaga makin pekat ke atas
+            float hole = box2(c, 0.15, 0.85, 0.25, 0.85);
+            float soot = clamp(0.25 + rnd * 0.5 + fp.y * 0.02, 0.0, 0.9);
+            diffuseColor.rgb = mix(base, vec3(0.08, 0.07, 0.06), max(hole * 0.92, soot * 0.6));
+          }
+        }
+        diffuseColor.rgb *= mix(1.0, 0.86, 1.0 - side);`);
   };
   return m;
+}
+
+// Bagian gedung -> satu BufferGeometry (posisi, normal, warna, aFac). null bila tidak ada gedung.
+const buildingMesh = (list) => partsMesh(list.flatMap((b) => buildingLayout(b).parts));
+function partsMesh(parts) {
+  const pos = [], nor = [], col = [], fac = [];
+  const add = (g, color, f) => {
+    const ng = g.index ? g.toNonIndexed() : g;
+    const p = ng.attributes.position.array, n = ng.attributes.normal.array;
+    _c.setHex(color);
+    for (let i = 0; i < p.length; i += 3) { pos.push(p[i], p[i + 1], p[i + 2]); nor.push(n[i], n[i + 1], n[i + 2]); col.push(_c.r, _c.g, _c.b); fac.push(f[0], f[1], f[2]); }
+    g.dispose(); if (ng !== g) ng.dispose();
+  };
+  {
+    for (const pt of parts) {
+      if (pt.t === 'box') add(new THREE.BoxGeometry(pt.s[0], pt.s[1], pt.s[2]).translate(pt.c[0], pt.c[1], pt.c[2]), pt.col, pt.fac);
+      else if (pt.t === 'cyl') add(new THREE.CylinderGeometry(pt.r, pt.r, pt.h, 10).translate(pt.c[0], pt.c[1], pt.c[2]), pt.col, [0, 1, 1]);
+      else if (pt.t === 'gable') { // prisma atap pelana, bubungan sepanjang sumbu
+        const [sx, sy, sz] = pt.s, along = pt.axis === 'x';
+        const L = (along ? sx : sz) / 2, W = (along ? sz : sx) / 2;
+        const P = (u, y, v) => (along ? [u, y, v] : [v, y, u]);
+        const v = [P(-L, -sy / 2, -W), P(L, -sy / 2, -W), P(L, sy / 2, 0), P(-L, sy / 2, 0), P(-L, -sy / 2, W), P(L, -sy / 2, W)];
+        const tri = [[0, 2, 1], [0, 3, 2], [4, 5, 2], [4, 2, 3], [0, 4, 3], [1, 2, 5], [0, 1, 5], [0, 5, 4]];
+        const arr = [];
+        for (const t of tri) for (const k of t) arr.push(...v[k]);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+        g.translate(pt.c[0], pt.c[1], pt.c[2]);
+        g.computeVertexNormals();
+        // segitiga dibuat dua arah putaran: pastikan normal menghadap keluar dari pusat
+        const pa = g.attributes.position.array, na = g.attributes.normal.array;
+        for (let i = 0; i < pa.length; i += 9) {
+          const cx = (pa[i] + pa[i + 3] + pa[i + 6]) / 3 - pt.c[0], cy = (pa[i + 1] + pa[i + 4] + pa[i + 7]) / 3 - pt.c[1] + sy * 0.2, cz = (pa[i + 2] + pa[i + 5] + pa[i + 8]) / 3 - pt.c[2];
+          if (na[i] * cx + na[i + 1] * cy + na[i + 2] * cz < 0) {
+            for (let k = 0; k < 9; k++) na[i + k] = -na[i + k];
+            for (let k = 0; k < 3; k++) { const t = pa[i + 3 + k]; pa[i + 3 + k] = pa[i + 6 + k]; pa[i + 6 + k] = t; }
+          }
+        }
+        add(g, pt.col, pt.fac);
+      }
+    }
+  }
+  if (!pos.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('aFac', new THREE.Float32BufferAttribute(fac, 3));
+  const mesh = new THREE.Mesh(g, buildingMaterial());
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  return mesh;
 }
 
 // Ground: soft large patches (mown / dry grass) instead of one flat colour.
@@ -200,16 +287,14 @@ export function buildWorld(scene, config) {
   }
 
   // Buildings and obstacles (instanced).
-  const bMesh = instancedBoxes(config.buildings, facadeMaterial(),
-    (b) => _c.setHSL(0.08 + b.shade * 0.5, 0.08 + b.shade * 0.06, 0.62 + b.shade * 0.2)); // warm concrete to cool panels
+  const bMesh = buildingMesh(config.buildings); // ruko, kantor, apartemen, gudang, rangka terbakar (buildings.js)
   const oMesh = instancedBoxes(config.obstacles, new THREE.MeshLambertMaterial({ color: 0xffffff }),
     () => _c.set(0xd9822b));
-  root.add(bMesh, oMesh);
+  if (bMesh) root.add(bMesh);
+  root.add(oMesh);
 
-  const colliders = [...config.buildings, ...config.obstacles, ...(config.trees || [])].map((b) => ({
-    min: [b.x - b.w / 2, 0, b.z - b.d / 2],
-    max: [b.x + b.w / 2, b.h, b.z + b.d / 2],
-  }));
+  const colliders = config.buildings.flatMap((b) => buildingColliders(b));
+  for (const b of [...config.obstacles, ...(config.trees || [])]) colliders.push({ min: [b.x - b.w / 2, 0, b.z - b.d / 2], max: [b.x + b.w / 2, b.h, b.z + b.d / 2] });
   if (real) for (const c of real.colliders) colliders.push(c);
   const groundAt = real && real.groundAt ? real.groundAt : () => 0;
 
@@ -268,6 +353,11 @@ export function buildWorld(scene, config) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(0.6, 0.05, 0.5 + (b.shade || 0) * 0.2) }));
     mesh.position.set(b.x, b.y0 + b.h / 2, b.z); mesh.castShadow = mesh.receiveShadow = true;
     root.add(mesh);
+  }
+  if (m.structure && m.variant === 'jembatan') { // jembatan M5: aspal, kerb, pagar, lampu, gelagar, kepala pilar
+    const br = bridgeLayout(m.structure);
+    const bm = partsMesh(br.parts); if (bm) root.add(bm);
+    for (const c of br.colliders) colliders.push(c);
   }
   const flat = (geo, color, x, y, z) => { // a flat shape on the ground
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));

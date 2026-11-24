@@ -76,7 +76,7 @@ const drone = createDrone(scene);
 let worldWater = makeWater();  // air di dunia yang sedang dimuat (water.js)
 newSim();
 // Hanya saat npm run dev: akses simulasi dari konsol browser untuk uji coba (window.__dronelab.sim).
-if (import.meta.env && import.meta.env.DEV) window.__dronelab = { get sim() { return sim; }, get water() { return worldWater; } };
+if (import.meta.env && import.meta.env.DEV) window.__dronelab = { get sim() { return sim; }, get water() { return worldWater; }, get config() { return config; }, get physics() { return physics; }, scene, THREE };
 const chase = new FollowCamera(camera);
 const input = createInput();
 const autopilot = new Autopilot();
