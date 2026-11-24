@@ -5,6 +5,7 @@ import './hud.css';
 import { STEP } from './config.js';
 import { Flight, ALT_GRACE, ALT_FAIL } from './flight.js';
 import { ZOOM } from './camera-model.js';
+import { heatAt, HEAT_RATE, FIRE_WARN } from './fire.js';
 const GIMBAL_RATE = 45; // derajat per detik, kecepatan gimbal drone konsumen (sekitar 20-100)
 import { buildWorld } from './world.js';
 import { makeMissionConfig, normalizeConfig } from './worldconfig.js';
@@ -553,6 +554,7 @@ function frame(now) {
       else sim.applyAction(input.action); // single entry point for every input source
       sim.step(STEP, physics);
       world.update(sim.pos);
+      fireStep(STEP);
       if (sim.collisionCount > seenHits) { seenHits = sim.collisionCount; input.rumble(0.7, 150); }
       const airborne = sim.mode !== 'landed';
       const run = session.run;
@@ -636,6 +638,22 @@ function frame(now) {
   }
 }
 
+// Panas api: peringatan jika dekat, kerusakan jika terkena. Zona api misi M1 punya hitungan sendiri (missions.js),
+// jadi kerusakan di sini hanya untuk peta realistis; peringatannya berlaku di mana saja ada api.
+let fireHeat = { level: 0, near: Infinity }, heatAcc = 0;
+function fireStep(dt) {
+  const list = world.fireHazards;
+  if (!list || !list.length) { fireHeat.level = 0; fireHeat.near = Infinity; return; }
+  fireHeat = heatAt(list, sim.pos[0], sim.pos[1], sim.pos[2]);
+  if (!config.realScene || !sim.damage || sim.mode === 'crashed' || fireHeat.level <= 0) { heatAcc = 0; return; }
+  heatAcc += dt * fireHeat.level;
+  if (heatAcc >= 0.25) {
+    const ch = sim.damage.burn(HEAT_RATE * heatAcc);
+    heatAcc = 0;
+    if (ch.length && sim.onDamage) sim.onDamage(ch);
+  }
+}
+
 function updateHud(now) {
   const run = session.run;
   const tel = sim.telemetry();
@@ -650,6 +668,7 @@ function updateHud(now) {
     marks: session.marks,
     deviceLabel: input.device === 'gamepad' ? `Controller (${input.padType === 'ps' ? 'PlayStation' : 'Xbox'})` : 'Keyboard',
   }, now);
+  hud.setFireWarn(fireHeat.level > 0 || fireHeat.near < FIRE_WARN ? fireHeat : null);
   hud.setAltWarn(sim.overTime > 0 && sim.mode !== 'landed' && sim.mode !== 'crashed' ? { t: sim.overTime, grace: ALT_GRACE, fail: ALT_FAIL } : null);
   hud.setBadges({ rec: run && run.recording, thermal, spray: run && run.spraying });
   if (run) {

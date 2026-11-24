@@ -126,10 +126,33 @@ const PUFF_FRAG = /* glsl */`
 
 // Pilihan jumlah partikel per sumber api.
 export const fireCounts = (r, h, smokeH) => ({
-  tongues: Math.max(5, Math.min(16, Math.round(r * 3))),
+  tongues: Math.max(5, Math.min(28, Math.round(r * 4))), // area luas = lebih banyak lidah api
   puffs: Math.max(8, Math.min(28, Math.round(smokeH / (r * 0.9)))),
   embers: Math.max(6, Math.min(24, Math.round(8 + r * 2))),
 });
+
+// ---- Bahaya api (murni, tanpa Three.js) ----
+// Volume inti = silinder di sekitar sumber api; panas menjalar sampai jarak `reach` dari inti (plume ke atas lebih tinggi).
+export const HEAT_RATE = 0.12;   // kerusakan per detik di dalam inti (sama dengan zona api misi M1)
+export const FIRE_WARN = 10;     // m dari inti api: peringatan "terlalu dekat"
+export function fireCore(s) { return s.r * 1.1 + 0.6; }
+export function fireReach(s) { return 0.8 * s.h + 1.5; } // jangkauan panas di luar inti
+// list: sumber api bernyala. Hasil: level 0..1 (1 = di dalam api), near = jarak ke inti api terdekat (m).
+export function heatAt(list, x, y, z) {
+  let level = 0, near = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    const dh = Math.hypot(x - s.x, z - s.z);
+    const top = s.y + s.h * 2.2 + 2, bot = s.y - 1.5;
+    const dv = y > top ? y - top : y < bot ? bot - y : 0;
+    const d = Math.hypot(Math.max(0, dh - fireCore(s)), dv);
+    if (d < near) near = d;
+    const reach = fireReach(s);
+    const lv = d <= 0 ? 1 : d >= reach ? 0 : 0.6 * (1 - d / reach);
+    if (lv > level) level = lv;
+  }
+  return { level, near };
+}
 
 const rng = (seed) => { let s = seed >>> 0 || 1; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); };
 
@@ -173,6 +196,8 @@ export function createFireField() {
   return {
     group,
     get count() { return sources.length; },
+    // Sumber yang benar-benar menyala (bukan hanya asap), untuk bahaya panas.
+    get hazards() { return sources.filter((s) => s.flame); },
     get built() { return built; },
     add(o) { sources.push({ r: 3, h: 5, smoke: true, flame: true, ...o }); }, // flame: false = hanya asap
     setWind(dirDeg, speed) { // konvensi sama dengan Flight.wind

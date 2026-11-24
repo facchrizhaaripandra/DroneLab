@@ -358,3 +358,17 @@ Drone asli melayang tetap lurus; yang miring adalah gimbal kamera. Di sini juga 
 Kamera juga bisa diputar miring (roll, sudut serong): `[` miring kiri, `]` miring kanan (ditahan, 45°/detik, maksimal 45° tiap sisi), `Home` meluruskan semuanya. Sudutnya ditulis di label kamera (↻ kanan, ↺ kiri) dan dihitung di skor "horizon rata" pada foto. Belum ada tombol controller untuk roll.
 
 Gimbal bergerak seperti motor gimbal asli, bukan melompat: `Home`, tombol Y, dan perintah `look` menggerakkan kamera dengan animasi (mulai pelan, maksimal 120°/detik, melambat di ujung, sekitar 0,5 sampai 1 detik untuk sudut besar). Kamera pada model drone ikut bergerak.
+
+## Animasi kebakaran
+
+`src/fire.js` membuat api yang bergerak, semuanya di shader (ringan, ratusan sumber api tetap lancar): lidah api tegak dengan bentuk dari noise yang naik dan warna merah tua, oranye, kuning, putih; cahaya dasar yang berkedip; bara yang terbang naik terbawa angin; asap gelap yang naik, membesar, memudar, dan condong sesuai arah angin dunia. Dua lampu titik menerangi sekitar api terdekat dari drone dan berkedip. Mode panas (T) membuat api dan bara putih dan asap tipis.
+
+Dipakai di:
+- Misi M1 (pencarian korban): zona api dan asap dari konfigurasi dunia, menggantikan kerucut lama.
+- Peta realistis: sumber api dibaca dari `fires` di `scene.json` (koordinat dunia: `x, y, z, r, h`, opsional `smoke: false`, `smokeH`, `flame: false` untuk asap saja). Daftarnya ada di `scripts/blender/fires.json` dan digabung otomatis oleh `export_scene.py`. S1 gedung terbakar: 9 sumber (runtuhan atap dan jendela lantai atas sisi timur). S2 hutan terbakar: 18 sumber (batang dan tajuk pohon hangus yang masih menyala).
+
+Peta lain tidak punya api; tambahkan entri di `fires.json` lalu ekspor ulang atau isi `fires` di `scene.json` langsung. Api di peta realistis hanya tampilan (belum melukai drone seperti zona api M1).
+
+### Bahaya api
+
+`heatAt()` di `fire.js`: tiap api punya inti (silinder radius `r × 1,1 + 0,6`, tinggi sampai `h × 2,2 + 2`, jadi plume di atas api ikut panas) dan jangkauan panas di luarnya (`0,8 × h + 1,5` m). Di dalam inti drone rusak seperti zona api misi (0,12 per detik, kira-kira 8 detik sampai kamera hancur); di jangkauan panas rusaknya lebih pelan, sampai 60% dan makin kecil menjauh. Jarak 10 m dari inti memunculkan banner "Terlalu dekat api (N m)", dan di dalam panas banner merah "Terkena panas api!". Kerusakan berlaku di peta realistis; zona api misi M1 tetap memakai hitungan `missions.js`, tapi peringatan dekat-api berlaku di keduanya. Area luas: lidah api per sumber sampai 28, S1 sekarang 34 sumber api (atap, jendela empat sisi, halaman), S2 67 sumber (pohon hangus, tajuk, semak).

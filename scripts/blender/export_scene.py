@@ -155,6 +155,10 @@ def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
     meta = {"id": scene_id, "title": title, "notes": notes, "spawn_blender": [f2(v) for v in S],
             "offset": [-S[0], -S[2], S[1]], "bounds": bounds, "maxAgl": max_agl, "height": height,
             "colliders": sim_cols, "mapBoxes": mapb[:4000]}
+    fp = os.path.normpath(os.path.join(out, "..", "..", "..", "scripts", "blender", "fires.json"))  # sumber api untuk animasi kebakaran
+    if os.path.exists(fp):
+        fires = json.load(open(fp)).get(scene_id)
+        if fires: meta["fires"] = fires
     with open(os.path.join(out, "scene.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 

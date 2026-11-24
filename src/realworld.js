@@ -98,4 +98,8 @@ export function realSceneConfig(base, prepared) {
   return {
     ...base,
     bounds: prepared.bounds,
-    buildings: [], obstacles: [], rings
+    buildings: [], obstacles: [], rings: [], trees: [], solids: [],
+    mapBoxes: prepared.mapBoxes,
+    realScene: prepared,
+  };
+}

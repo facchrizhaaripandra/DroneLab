@@ -450,4 +450,8 @@ export function buildWorld(scene, config) {
     },
   };
   // Sumber api peta realistis (meta.fires dari scene.json), lalu dibangun sekali.
-  if (real && real.fires) for (const f of real.fires) fi
+  if (real && real.fires) for (const f of real.fires) fire.add(f);
+  fire.build();
+  world.fireHazards = fire.hazards; // dipakai main.js: peringatan dekat api dan kerusakan panas
+  return world;
+}

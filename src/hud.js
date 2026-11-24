@@ -45,6 +45,7 @@ export function createHud(root, config) {
     <div id="side" class="panel"><h2>Asisten AI</h2><div id="side-rows"></div><p class="muted">Belum terhubung ke server AI (Fase 4). Tombol 1-4 mengganti pilihan.</p></div>
     <div id="hint" class="panel"></div>
     <div id="altwarn" class="panel"></div>
+    <div id="firewarn" class="panel"></div>
     <div id="badges"></div>
     <div id="flash"></div>
     <div id="toast" class="panel"></div>
@@ -55,7 +56,7 @@ export function createHud(root, config) {
     alt: $('t-alt'), spd: $('t-spd'), bat: $('t-bat'), dmg: $('t-dmg'), main: $('g-main'), bar: $('g-bar'),
     time: $('g-time'), hit: $('g-hit'), mode: $('g-mode'), ctl: $('s-ctl'), fps: $('s-fps'),
     title: $('g-title'), gw: $('s-gw'), ai: $('s-ai'), side: $('side'), sideRows: $('side-rows'),
-    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), zoomtag: $('zoomtag'), zoomfs: $('zoomfs'), altwarn: $('altwarn'), flash: $('flash'),
+    hint: $('hint'), toast: $('toast'), hold: $('hold'), dbg: $('dbg'), badges: $('badges'), zoomtag: $('zoomtag'), zoomfs: $('zoomfs'), altwarn: $('altwarn'), firewarn: $('firewarn'), flash: $('flash'),
   };
 
   // Minimap: static layer (buildings, obstacles, pad, mission spots) drawn once per world at full world size;
@@ -126,7 +127,7 @@ export function createHud(root, config) {
   drawStatic(config);
 
   let toastUntil = 0;
-  let lastAlt = '';
+  let lastAlt = '', lastFire = '';
   let pipOn = true;
   let lastZoom = '', lastZoomFull = null;
   const pipEl = root.querySelector('#pip');
@@ -168,6 +169,17 @@ export function createHud(root, config) {
       el.altwarn.textContent = danger
         ? `Motor dan baterai rusak. Turun sekarang! Drone gagal dalam ${Math.max(0, Math.floor(w.fail - w.t))} detik`
         : `Di atas batas ketinggian. Turun dalam ${Math.ceil(w.grace - w.t)} detik`;
+    },
+    // Peringatan api: null = aman; {near, level} = jarak ke inti api (m) dan tingkat panas 0..1.
+    setFireWarn(w) {
+      const key = !w ? '' : w.level > 0 ? 'hot' : `n${Math.ceil(w.near)}`;
+      if (key === lastFire) return;
+      lastFire = key;
+      el.firewarn.style.display = w ? 'block' : 'none';
+      if (!w) return;
+      const hot = w.level > 0;
+      el.firewarn.classList.toggle('danger', hot);
+      el.firewarn.textContent = hot ? 'Terkena panas api! Drone rusak. Menjauh sekarang' : `Terlalu dekat api (${Math.ceil(w.near)} m). Menjauh`;
     },
     // Sudut gimbal dan zoom kamera drone: di label popup, dan di atas layar saat layar penuh (mode kamera depan).
     setZoom(z, full, pitch = -10, roll = 0) {

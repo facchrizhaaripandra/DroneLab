@@ -74,6 +74,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05090c; }
 #altwarn.danger { color: #fff; background: rgba(170, 30, 20, 0.85); border-color: #ff5a4a; animation: altblink 0.8s steps(2) infinite; }
 @keyframes altblink { 50% { opacity: 0.55; } }
 #zoomfs { display: none; left: 540px; top: 150px; width: 200px; padding: 6px 0; text-align: center; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#firewarn { display: none; left: 380px; top: 208px; width: 520px; padding: 12px 16px; text-align: center; font-size: 18px; font-weight: 700; background: var(--glass-strong); border-color: #ff6a1a; color: #ffb35c; }
+#firewarn.danger { color: #fff; background: rgba(170, 30, 20, 0.85); border-color: #ff5a4a; animation: altblink 0.6s steps(2) infinite; }
 #hold { position: absolute; left: 604px; top: 500px; width: 72px; height: 72px; border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: conic-gradient(var(--signal) 0%, rgba(255, 255, 255, 0.2) 0); }
 #hold b { width: 58px; height: 58px; border-radius: 50%; background: var(--glass-strong); color: var(--ink); display: flex; align-items: center; justify-content: center; }
 #dbg { left: 64px; top: 196px; margin: 0; width: 360px; font: 12.5px/1.4 var(--mono); white-space: pre-wrap; display: none; }
@@ -181,4 +183,4 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05090c; }
 #editor #ed-log { box-sizing: border-box; margin: 0; height: 70px; overflow: auto; padding: 4px 8px; font: 12px/1.4 var(--mono); border: 1px solid var(--edge); border-radius: 6px; background: rgba(0, 0, 0, 0.35); color: #c9d6de; }
 #ed-log .ok { color: var(--ok); } #ed-log .warn { color: var(--warn); } #ed-log .error { color: var(--bad); font-weight: 600; }
 
-@media (prefers-reduced-motion: reduce) { #toast, #menu .mi, #goal .bar i { transition: none; } #flash.go { animation: none; } #altwarn.danger { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #toast, #menu .mi, #goal .bar i { transition: none; } #flash.go { animation: none; } #altwarn.danger, #firewarn.danger { animation: none; } }
