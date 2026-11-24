@@ -3,7 +3,9 @@
 import * as THREE from 'three';
 import './hud.css';
 import { STEP } from './config.js';
-import { Flight } from './flight.js';
+import { Flight, ALT_GRACE, ALT_FAIL } from './flight.js';
+import { ZOOM } from './camera-model.js';
+const GIMBAL_RATE = 45; // derajat per detik, kecepatan gimbal drone konsumen (sekitar 20-100)
 import { buildWorld } from './world.js';
 import { makeMissionConfig, normalizeConfig } from './worldconfig.js';
 import { createDrone } from './drone.js';
@@ -96,7 +98,7 @@ applyGraphics();
 // Script runner: it drives the drone through applyAction() like every other input source.
 const commander = new Commander({
   autopilot,
-  detect: (label) => canSee(label, sim.pos, sim.yaw, config, session ? session.extraBoxes : [], { pitch: drone.gimbal, thermal }),
+  detect: (label) => canSee(label, sim.pos, sim.yaw, config, session ? session.extraBoxes : [], { pitch: drone.gimbal, zoom: drone.zoom, thermal }),
   battery: () => (session ? session.battery.level : 100),
   setGimbal: (deg) => drone.setGimbalPitch(deg),
   act(name) {
@@ -250,13 +252,16 @@ function loadWorld(cfg) {
   panelOpen = false;
   hud.setWorld(config);
   chase.ground = config.realScene ? config.realScene.groundAt : null;
+  drone.setGround(chase.ground);
   camera.far = config.realScene ? 2500 : 500; // the mountain scene is 1 km wide
   camera.updateProjectionMatrix();
   drone.pipCamera.far = config.realScene ? 1200 : 400;
   drone.pipCamera.updateProjectionMatrix();
   setThermal(false);
   drone.setSpray(false);
-  drone.setGimbalPitch(-10);
+  drone.setGimbalPitch(-10, true);
+  drone.setZoom(1, true);
+  drone.setGimbalRoll(0, true);
 }
 
 // ---- screens ----
@@ -270,7 +275,7 @@ function showMain() {
     freeroam: startFreeroam,
     scenes: showScenes,
     editor: () => { startFreeroam(); editor.open(); },
-    settings: showSettings,
+    settings: () => { settingsReturn = showMain; showSettings(); },
     help: () => menu.open(helpSpec({ back: showMain }, settings.keyboard.keys)),
   }));
 }
@@ -284,8 +289,9 @@ function setPath(path, value) { // 'keyboard.ramp' -> settings.keyboard.ramp = v
   commit();
 }
 const settingsBack = () => showSettings();
+let settingsReturn = showMain; // where "Kembali" on the settings screen goes: main menu, or the pause menu mid-flight
 function showSettings() {
-  menu.open(settingsMenuSpec({ keyboard: showKeyboardSettings, controller: showControllerSettings, graphics: showGraphicsSettings, back: showMain }));
+  menu.open(settingsMenuSpec({ keyboard: showKeyboardSettings, controller: showControllerSettings, graphics: showGraphicsSettings, back: () => settingsReturn() }));
 }
 let capturingAction = null;
 function showKeyboardSettings() {
@@ -419,6 +425,7 @@ function pauseGame() {
   menu.open(pauseSpec({
     resume: () => { menu.close(); setMenuMode(false); state = 'play'; last = performance.now(); },
     retry: () => (session.kind === 'mission' ? startMission(session.def, session.variant) : session.scene ? startRealScene(session.scene) : startFreeroam()),
+    settings: () => { settingsReturn = pauseGame; showSettings(); }, // the game stays paused underneath
     finish: session.kind === 'mission' && session.def.tier === 'utama' ? () => { session.run.endNow(); endMission(); } : null,
     main: showMain,
   }));
@@ -460,6 +467,16 @@ events.on('input', (e) => {
     pauseGame();
   } else if (e.name === 'camera_next' || e.name === 'camera_prev') {
     toast(chase.cycle(e.name === 'camera_next' ? 1 : -1).label);
+  } else if (e.name === 'gimbal_reset') {
+    drone.setGimbalPitch(0); drone.setGimbalRoll(0); toast('Kamera lurus');
+  } else if (e.name === 'gimbal_cycle') {
+    const g = drone.gimbalTarget, steps = [0, -30, -45, -90];
+    const next = steps.find((v) => v < g - 1) ?? 0; // turun bertahap, lalu kembali lurus
+    drone.setGimbalPitch(next); toast(`Kamera ${next}°`);
+  } else if (e.name === 'zoom_in' || e.name === 'zoom_out' || e.name === 'zoom_cycle') {
+    const z = drone.zoom;
+    if (e.name === 'zoom_cycle') drone.setZoom(ZOOM.presets.find((p) => p > z + 0.01) || ZOOM.presets[0]);
+    else drone.setZoom(z * (e.name === 'zoom_in' ? 1.12 : 1 / 1.12));
   } else if (e.name === 'pickup_drop') {
     const msg = session.run && session.run.pickupDrop(sim);
     toast(msg || 'Tidak ada paket di mode ini');
@@ -525,6 +542,8 @@ function frame(now) {
 
   // Fixed-step physics, only while playing. Max 5 steps per frame to avoid a spiral of death.
   if (state === 'play') {
+    if (input.gimbalRoll) drone.nudgeGimbalRoll(input.gimbalRoll * GIMBAL_RATE * dt);
+    if (input.gimbal) drone.nudgeGimbal(input.gimbal * GIMBAL_RATE * dt); // drone tetap diam, hanya kamera yang bergerak
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 5) {
@@ -565,10 +584,20 @@ function frame(now) {
   else chase.update(drone.group.position, sim.prevYaw + (sim.yaw - sim.prevYaw) * alpha, drawDt);
   world.followLight(drone.group.position.x, drone.group.position.z);
   world.tick(now / 1000);
-  renderer.render(scene, camera);
+  // Mode "Kamera depan drone": layar penuh = gambar kamera drone (sama dengan popup), popup disembunyikan.
+  const fpv = (state === 'play' || state === 'paused') && chase.mode.id === 'fpv';
+  hud.setPipVisible(!fpv);
+  hud.setZoom(drone.zoom, fpv, drone.gimbal, drone.gimbalRoll);
+  if (session && session.run) { session.run.zoom = drone.zoom; session.run.gimbal = drone.gimbal; session.run.gimbalRoll = drone.gimbalRoll; }
+  if (fpv) {
+    const pc = drone.pipCamera;
+    if (drone.cameraOk) {
+      renderer.render(scene, pc); // panggung selalu 16:9, sama dengan aspek kamera drone
+    } else { renderer.setClearColor(0x050505, 1); renderer.clear(); renderer.setClearColor(0x000000, 1); } // kamera rusak: layar mati
+  } else renderer.render(scene, camera);
 
   // Second pass for the PIP drone camera: same scene, small scissored viewport. Only while the HUD is shown.
-  if (state === 'play' || state === 'paused') {
+  if (!fpv && (state === 'play' || state === 'paused')) {
     renderer.shadowMap.autoUpdate = false; // the shadow map from the main pass is still valid: skip a second shadow pass
     renderer.setScissorTest(true);
     renderer.setViewport(tmpView.x, tmpView.y, tmpView.w, tmpView.h);
@@ -585,7 +614,8 @@ function frame(now) {
   msAvg += (drawDt * 1000 - msAvg) * 0.05;
   if (fpsTime >= 0.5) {
     fps = frames / fpsTime;
-    if (state === 'play' && aq.sample(fps, fpsTime, settings.graphics)) { // 2 s below the limit: one step down
+    // Only when the player turned it on: otherwise the chosen quality never changes during play.
+    if (state === 'play' && settings.graphics.autoQuality && aq.sample(fps, fpsTime, settings.graphics)) { // 2 s below the limit: one step down
       applyGraphics();
       toast(`FPS rendah: kualitas diturunkan otomatis (${aq.name})`);
     }
@@ -620,6 +650,7 @@ function updateHud(now) {
     marks: session.marks,
     deviceLabel: input.device === 'gamepad' ? `Controller (${input.padType === 'ps' ? 'PlayStation' : 'Xbox'})` : 'Keyboard',
   }, now);
+  hud.setAltWarn(sim.overTime > 0 && sim.mode !== 'landed' && sim.mode !== 'crashed' ? { t: sim.overTime, grace: ALT_GRACE, fail: ALT_FAIL } : null);
   hud.setBadges({ rec: run && run.recording, thermal, spray: run && run.spraying });
   if (run) {
     if (run.spraying && sim.mode !== 'flying') run.setSpray(false, sim); // landed or crashed: the nozzle closes

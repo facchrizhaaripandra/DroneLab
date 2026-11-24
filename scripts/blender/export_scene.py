@@ -18,7 +18,8 @@ GROUND_PREFIX = ("terrain_", "ground_", "road_", "parking_lot", "sidewalk", "hel
 WATER_KEYS = ("water_surface", "sea_water", "lake_water", "river_water", "canal_water", "ditch_parit_water", "stream_small_river")
 # Not solid for the drone (thin, decorative or too small).
 SKIP_KEYS = ("decal", "weathering", "puddle", "shard", "marking", "tape", "ash", "rice_", "cables_L", "preview",
-             "fallen_branches", "roots_hanging", "grass", "fern", "debris_glass", "animals_", "power_wires", "water")
+             "fallen_branches", "roots_hanging", "grass", "fern", "debris_glass", "animals_", "power_wires", "water",
+             "backdrop", "foam", "bed_decal")
 # Structural meshes keep one box per connected part (so window and door openings stay open).
 # Other meshes merge touching parts into one box per object cluster (a car, a desk, a lamp).
 STRUCT = ("wall_", "facade_", "partitions_", "floor_slab", "roof_slab", "roof_parapet", "building_", "hotel_", "piers_",
@@ -36,7 +37,7 @@ def f2(v):
     return round(float(v), 2)
 
 
-def process(scene_id, title, spawn_xy, cell=2.0, max_agl=60.0, notes=""):
+def process(scene_id, title, spawn_xy, cell=2.0, max_agl=120.0, notes=""):
     t0 = time.time()
     out = os.path.join(OUT_ROOT, scene_id)
     os.makedirs(out, exist_ok=True)

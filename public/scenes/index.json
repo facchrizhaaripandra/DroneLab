@@ -1,56 +1,56 @@
 [
- {
-  "id": "s0_lapangan_latihan",
-  "title": "Lapangan latihan",
-  "notes": "Latihan terbang",
-  "glb_mb": 7.9
- },
- {
-  "id": "s1_gedung_terbakar",
-  "title": "Gedung perkantoran terbakar",
-  "notes": "Misi pencarian korban (gedung)",
-  "glb_mb": 13.4
- },
- {
-  "id": "s2_hutan_terbakar",
-  "title": "Hutan terbakar",
-  "notes": "Pencarian korban (hutan)",
-  "glb_mb": 12.1
- },
- {
-  "id": "s3_resor_hotel",
-  "title": "Resor hotel tepi laut",
-  "notes": "Fotografi dan videografi",
-  "glb_mb": 10.2
- },
- {
-  "id": "s4_gunung_danau",
-  "title": "Pegunungan dan danau",
-  "notes": "Fotografi dan videografi",
-  "glb_mb": 13.2
- },
- {
-  "id": "s5_sawah",
-  "title": "Sawah",
-  "notes": "Penyiraman dan pupuk",
-  "glb_mb": 18.4
- },
- {
-  "id": "s6_kota_pengiriman",
-  "title": "Kawasan perkotaan",
-  "notes": "Pengiriman barang",
-  "glb_mb": 21.1
- },
- {
-  "id": "s7_inspeksi_gedung",
-  "title": "Gedung bertingkat (inspeksi)",
-  "notes": "Inspeksi bangunan",
-  "glb_mb": 7.0
- },
- {
-  "id": "s7b_inspeksi_jembatan",
-  "title": "Jembatan gantung (inspeksi)",
-  "notes": "Inspeksi jembatan",
-  "glb_mb": 8.5
- }
+  {
+    "id": "s0_lapangan_latihan",
+    "title": "Lapangan latihan",
+    "notes": "Latihan terbang",
+    "glb_mb": 7.3
+  },
+  {
+    "id": "s1_gedung_terbakar",
+    "title": "Gedung perkantoran terbakar",
+    "notes": "Misi pencarian korban (gedung)",
+    "glb_mb": 13.3
+  },
+  {
+    "id": "s2_hutan_terbakar",
+    "title": "Hutan terbakar",
+    "notes": "Pencarian korban (hutan)",
+    "glb_mb": 10.9
+  },
+  {
+    "id": "s3_resor_hotel",
+    "title": "Resor hotel tepi laut",
+    "notes": "Fotografi dan videografi",
+    "glb_mb": 13.2
+  },
+  {
+    "id": "s4_gunung_danau",
+    "title": "Pegunungan dan danau",
+    "notes": "Fotografi dan videografi",
+    "glb_mb": 11.4
+  },
+  {
+    "id": "s5_sawah",
+    "title": "Sawah",
+    "notes": "Penyiraman dan pupuk",
+    "glb_mb": 17.6
+  },
+  {
+    "id": "s6_kota_pengiriman",
+    "title": "Kawasan perkotaan",
+    "notes": "Pengiriman barang",
+    "glb_mb": 17.5
+  },
+  {
+    "id": "s7_inspeksi_gedung",
+    "title": "Gedung bertingkat (inspeksi)",
+    "notes": "Inspeksi bangunan",
+    "glb_mb": 7.5
+  },
+  {
+    "id": "s7b_inspeksi_jembatan",
+    "title": "Jembatan gantung (inspeksi)",
+    "notes": "Inspeksi jembatan",
+    "glb_mb": 8.1
+  }
 ]

@@ -111,8 +111,12 @@ export function createInput() {
       return;
     }
     const name = codeToImpulse[e.code];
-    if (name && !e.repeat) emit(name);
+    if (name && (!e.repeat || name === 'zoom_in' || name === 'zoom_out')) emit(name); // zoom boleh ditahan
   });
+  window.addEventListener('wheel', (e) => { // roda mouse = zoom kamera drone
+    if (input.menuMode || input.capture || typing(e) || !e.deltaY) return;
+    emit(e.deltaY < 0 ? 'zoom_in' : 'zoom_out');
+  }, { passive: true });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
   window.addEventListener('blur', () => keys.clear());
 
@@ -183,6 +187,8 @@ export function createInput() {
     input.holdProgress = holding ? hold.progress : 0;
 
     // Hold-to-spray (G or RT). Only the state change is announced.
+    input.gimbal = input.menuMode ? 0 : (keys.has(input.bindings.gimbalUp) ? 1 : 0) - (keys.has(input.bindings.gimbalDown) ? 1 : 0);
+    input.gimbalRoll = input.menuMode ? 0 : (keys.has(input.bindings.gimbalRollRight) ? 1 : 0) - (keys.has(input.bindings.gimbalRollLeft) ? 1 : 0);
     const spray = !input.menuMode && (keys.has(input.bindings.spray) || padSpray);
     if (spray !== sprayOn) { sprayOn = spray; emit('spray', { on: spray }); }
 

@@ -4,6 +4,27 @@ import * as THREE from 'three';
 import { events } from './events.js';
 import { makeDefaultConfig } from './worldconfig.js';
 import { makeAgri, cellState } from './agri.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createFireField } from './fire.js';
+
+// Realistic tree models (public/models/trees.glb, built in Blender from photographed leaves). Loaded once; until
+// they arrive (or if the file is missing) the forest is drawn with the simple cone trees.
+let treeModels = null;
+function loadTreeModels() {
+  if (!treeModels) {
+    treeModels = new GLTFLoader().loadAsync('/models/trees.glb').then((g) => g.scene.children.map((node) => {
+      const box = new THREE.Box3().setFromObject(node);
+      const parts = [];
+      node.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material.alphaTest > 0) o.material.color.setScalar(1.3); // leaf cards read darker than the cone trees under the same lights
+        parts.push({ geometry: o.geometry, material: o.material });
+      });
+      return { parts, height: box.max.y - box.min.y, radius: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2 };
+    }).filter((v) => v.parts.length && v.height > 0)).catch(() => null);
+  }
+  return treeModels;
+}
 
 export { makeDefaultConfig };
 
@@ -125,7 +146,18 @@ export function buildWorld(scene, config) {
   root.add(sun, sun.target);
 
   // Ground + grid (the grid gives a sense of speed without textures). A realistic scene brings its own ground.
-  if (real) root.add(real.root);
+  if (real) {
+    root.add(real.root);
+    // Water reflects the sky gradient (Blender only gives it a colour and a ripple normal map): lakes and the sea
+    // pick up the pale horizon at low angles instead of looking like painted plates.
+    real.root.traverse((o) => {
+      if (!o.isMesh || !/water|lake|sea_|stream/.test(o.name) || /bed|decal/.test(o.name)) return;
+      for (const m of [].concat(o.material)) {
+        if (!m || m.transparent) continue;
+        m.envMap = skyTexture(); m.envMapIntensity = 0.85; m.needsUpdate = true;
+      }
+    });
+  }
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(config.bounds * 2 + 200, config.bounds * 2 + 200),
     groundMaterial(),
@@ -168,10 +200,11 @@ export function buildWorld(scene, config) {
 
   // ---- mission objects (M1, M2, M3, M5). Everything is built once per world from the config. ----
   const m = config.mission || {};
-  const flames = [];
-  const puffs = [];      // smoke sprites (animated in tick)
-  const fireMats = [];   // flame materials (thermal mode turns them white)
-  let personMat = null, fireMat = null, smokeMat = null, field = null, fieldAgri = null;
+  const fire = createFireField(); // api, bara, dan asap (fire.js); thermal mode memutihkannya
+  root.add(fire.group);
+  if (config.wind) fire.setWind(config.wind.dir, config.wind.speed || 1);
+  let lastPos = [0, 0, 0];
+  let personMat = null, field = null, fieldAgri = null;
   const markers = new THREE.Group();
   root.add(markers);
 
@@ -190,6 +223,28 @@ export function buildWorld(scene, config) {
       crown2.setColorAt(i, _c.setHSL(0.28 + k * 0.08, 0.38 + k * 0.15, 0.25 + k * 0.08)); // lit tip, a shade lighter
     });
     for (const mesh of [trunk, crown, crown2]) { mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; root.add(mesh); }
+    // swap the cones for the realistic models as soon as they are loaded (same place, height and crown size)
+    loadTreeModels().then((variants) => {
+      if (!variants || !variants.length) return;
+      const per = variants.map(() => []);
+      trees.forEach((t) => per[Math.floor(Math.abs(Math.sin(t.x * 12.9898 + t.z * 78.233)) * 43758.5453) % variants.length].push(t));
+      const up = new THREE.Vector3(0, 1, 0), m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+      variants.forEach((v, k) => {
+        const list = per[k];
+        if (!list.length) return;
+        for (const part of v.parts) {
+          const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+          list.forEach((t, i) => {
+            const s = t.h / v.height, sw = Math.min(1.3, Math.max(0.75, t.r / (v.radius * s))) * s;
+            m.compose(p.set(t.x, 0, t.z), q.setFromAxisAngle(up, (t.x * 7.31 + t.z * 3.17) % 6.283), sc.set(sw, s, sw));
+            im.setMatrixAt(i, m);
+          });
+          im.instanceMatrix.needsUpdate = true; im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+          root.add(im);
+        }
+      });
+      for (const mesh of [trunk, crown, crown2]) mesh.visible = false;
+    });
   }
   // Solid blocks with a base height (bridge deck and piers, mountain core). `hidden` ones only collide.
   for (const b of config.solids || []) {
@@ -224,36 +279,12 @@ export function buildWorld(scene, config) {
       body.castShadow = true;
       root.add(body, head);
     }
-    // Flames: additive outer cones with a yellow core and a ground glow, so fire reads as light, not as orange plastic.
-    fireMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
-    fireMats.push(fireMat, coreMat);
-    const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-    fireMats.push(glowMat);
+    // Api: lidah api shader, cahaya, bara; asap naik terbawa angin (fire.js). Bidang hangus tetap digambar di tanah.
     for (const f of m.fires) {
       flat(new THREE.CircleGeometry(f.r, 24), 0x241510, f.x, 0.05, f.z);
-      for (let k = 0; k < 7; k++) {
-        const a = (k / 7) * Math.PI * 2 + k, d = k === 0 ? 0 : f.r * (0.35 + 0.1 * (k % 3));
-        const hgt = 3 + (k % 3) * 1.1;
-        const flame = new THREE.Mesh(new THREE.ConeGeometry(f.r * 0.2, hgt, 7, 1, true), fireMat);
-        flame.position.set(f.x + Math.sin(a) * d, hgt / 2, f.z - Math.cos(a) * d);
-        const core = new THREE.Mesh(new THREE.ConeGeometry(f.r * 0.1, hgt * 0.55, 6, 1, true), coreMat);
-        core.position.set(0, -hgt * 0.2, 0); flame.add(core);
-        root.add(flame); flames.push(flame);
-      }
-      const glow = new THREE.Sprite(glowMat); glow.scale.set(f.r * 3.2, f.r * 2.2, 1); glow.position.set(f.x, 1.4, f.z);
-      root.add(glow); flames.push(glow);
+      fire.add({ x: f.x, y: 0.05, z: f.z, r: f.r, h: 1.5 + f.r * 0.75, smoke: false });
     }
-    // Smoke: stacked soft puffs that rise and swell; the shared material keeps the thermal toggle simple.
-    smokeMat = new THREE.SpriteMaterial({ map: puffTexture(), color: 0x5b5d61, transparent: true, opacity: 0.55, depthWrite: false });
-    for (const s of m.smoke) {
-      const n = Math.max(6, Math.round(s.h / (s.r * 0.7)));
-      for (let k = 0; k < n; k++) {
-        const puff = new THREE.Sprite(smokeMat);
-        puff.userData = { x: s.x, z: s.z, r: s.r, h: s.h, phase: k / n, seed: k * 1.618 };
-        root.add(puff); puffs.push(puff);
-      }
-    }
+    for (const sm of m.smoke) fire.add({ x: sm.x, y: 0.5, z: sm.z, r: sm.r, h: 2, smokeH: sm.h * 1.6, flame: false });
     const safe = flat(new THREE.CircleGeometry(m.safe.r, 24), 0x2ea66b, m.safe.x, 0.06, m.safe.z);
     safe.material = new THREE.MeshBasicMaterial({ color: 0x2ea66b });
   }
@@ -365,6 +396,7 @@ export function buildWorld(scene, config) {
     passedCount: 0,
     // Sensor check, called once per physics step.
     update(pos) {
+      lastPos = pos;
       for (let i = 0; i < rings.length; i++) {
         const g = rings[i];
         if (g.passed) continue;
@@ -380,8 +412,7 @@ export function buildWorld(scene, config) {
     // Thermal mode: people and fire glow white-hot, smoke becomes thin. (The canvas also gets a CSS filter in main.js.)
     setThermal(on) {
       if (personMat) personMat.color.setHex(on ? 0xffffff : 0xff7a2f);
-      if (fireMat) { fireMats[0].color.setHex(on ? 0xffffff : 0xff6a1a); fireMats[1].color.setHex(on ? 0xffffff : 0xffd36a); }
-      if (smokeMat) smokeMat.opacity = on ? 0.12 : 0.55;
+      fire.setThermal(on);
     },
     // A flag where the pilot pressed "tandai".
     addMarker(x, y, z) {
@@ -402,20 +433,8 @@ export function buildWorld(scene, config) {
       }
       field.instanceColor.needsUpdate = true;
     },
-    // Flames flicker. Called once per drawn frame; allocates nothing.
-    tick(t) {
-      for (let i = 0; i < flames.length; i++) {
-        const f = flames[i];
-        if (f.isSprite) { const k = 1 + 0.12 * Math.sin(t * 9 + i); f.material.opacity = 0.75 + 0.2 * Math.sin(t * 11 + i * 2.1); f.scale.x = f.scale.x / (f.userData.k || 1) * k; f.userData.k = k; }
-        else f.scale.y = 1 + 0.22 * Math.sin(t * 7 + i * 1.7) + 0.08 * Math.sin(t * 17 + i);
-      }
-      for (let i = 0; i < puffs.length; i++) { // each puff climbs its column and loops; it grows and drifts as it rises
-        const p = puffs[i], u = p.userData, q = (u.phase + t * 0.025) % 1;
-        const sz = u.r * (1.4 + q * 1.6);
-        p.position.set(u.x + Math.sin(u.seed + t * 0.3) * u.r * 0.35 * q, 0.6 + q * u.h, u.z + Math.cos(u.seed * 1.3 + t * 0.27) * u.r * 0.35 * q);
-        p.scale.set(sz, sz, 1);
-      }
-    },
+    // Api, bara, dan asap bergerak di shader; di sini hanya waktu dan lampu api terdekat. Tanpa alokasi.
+    tick(t) { fire.update(t, lastPos); },
     // Sun angle (dataset export varies it). Azimuth in the yaw convention, elevation in degrees.
     setSun(az, el) {
       const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
@@ -430,5 +449,5 @@ export function buildWorld(scene, config) {
       sun.target.position.set(px, gy, pz);
     },
   };
-  return world;
-}
+  // Sumber api peta realistis (meta.fires dari scene.json), lalu dibangun sekali.
+  if (real && real.fires) for (const f of real.fires) fi

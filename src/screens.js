@@ -84,6 +84,7 @@ function extraBody(res) {
 
 export function pauseSpec(cb) {
   const items = [{ label: 'Lanjut', action: cb.resume }, { label: 'Ulangi', action: cb.retry }];
+  if (cb.settings) items.push({ label: 'Pengaturan', note: 'keyboard, controller, grafik', action: cb.settings });
   if (cb.finish) items.push({ label: 'Akhiri dan lihat skor', note: 'selesai sekarang', action: cb.finish });
   items.push({ label: 'Menu utama', action: cb.main });
   return {
@@ -113,6 +114,9 @@ export function helpSpec(cb, keys = DEFAULT_KEYS) {
       ['Mode panas', k('thermal'), p('D-pad ↓')],
       ['Ambil / lepas paket', k('pickupDrop'), p('D-pad →')],
       ['Ganti kamera', k('camera'), p('LB', 'RB')],
+      ['Arahkan kamera atas / bawah', `${k('gimbalUp')} ${k('gimbalDown')} (${k('gimbalReset')} lurus)`, p('Y')],
+      ['Putar kamera miring kiri / kanan', `${k('gimbalRollLeft')} ${k('gimbalRollRight')}`, '–'],
+      ['Zoom kamera drone', `${k('zoomIn')} ${k('zoomOut')} atau roda mouse`, p('Back')],
     ]],
     ['Lainnya', [
       ['Editor perintah', k('command'), ''],
@@ -134,7 +138,9 @@ const ACTION_NAMES = {
   forward: 'Maju', back: 'Mundur', left: 'Geser kiri', right: 'Geser kanan', up: 'Naik', down: 'Turun',
   yawLeft: 'Putar kiri', yawRight: 'Putar kanan', takeoffLand: 'Takeoff / Land (tahan)', home: 'Return home',
   photo: 'Foto', record: 'Rekam', spray: 'Semprot (tahan)', pickupDrop: 'Ambil / lepas paket', mark: 'Tandai',
-  thermal: 'Termal', command: 'Editor perintah', panelAI: 'Panel AI', addObject: 'Tambah objek', camera: 'Ganti kamera', pause: 'Jeda',
+  thermal: 'Termal', command: 'Editor perintah', panelAI: 'Panel AI', addObject: 'Tambah objek', camera: 'Ganti kamera', pause: 'Jeda', zoomIn: 'Zoom masuk', zoomOut: 'Zoom keluar',
+  gimbalUp: 'Kamera miring ke atas', gimbalDown: 'Kamera miring ke bawah', gimbalReset: 'Kamera lurus',
+  gimbalRollLeft: 'Kamera putar kiri', gimbalRollRight: 'Kamera putar kanan',
 };
 const FOOT = '← → ubah nilai · Enter / A pilih · Esc / B kembali';
 const pct = (v) => `${Math.round(v * 100)}%`;
@@ -202,13 +208,14 @@ export function stickTestSpec(cb) {
 export function graphicsSpec(get, cb) {
   const g = get().graphics;
   return {
-    title: 'Pengaturan grafik', subtitle: 'Kualitas turun otomatis jika FPS di bawah 30 (Fase 6)', foot: FOOT, onBack: cb.back, rebuild: () => graphicsSpec(get, cb),
+    title: 'Pengaturan grafik', subtitle: g.autoQuality ? 'Kualitas turun sendiri jika FPS rendah saat bermain' : 'Kualitas tetap seperti yang dipilih, tidak berubah saat bermain', foot: FOOT, onBack: cb.back, rebuild: () => graphicsSpec(get, cb),
     items: [
       { label: 'Preset kualitas', note: PRESET_NAMES[g.preset], step: (d) => cb.preset(stepList(['low', 'medium', 'high'], g.preset === 'custom' ? 'medium' : g.preset, d)) },
       { label: 'Target FPS', note: String(g.targetFps), step: (d) => cb.set('graphics.targetFps', stepList([30, 60], g.targetFps, d)) },
       { label: 'Resolusi render', note: pct(g.renderScale), step: (d) => cb.setCustom('graphics.renderScale', stepNum(g.renderScale, 0.5, 1, 0.1, d)) },
       { label: 'Bayangan', note: onOff(g.shadows), step: () => cb.setCustom('graphics.shadows', !g.shadows) },
       { label: 'Ukuran HUD', note: pct(g.hudScale), step: (d) => cb.set('graphics.hudScale', stepList([0.8, 0.9, 1], g.hudScale, d)) },
+      { label: 'Turunkan otomatis', note: g.autoQuality ? 'Nyala (saat FPS rendah)' : 'Mati', step: () => cb.set('graphics.autoQuality', !g.autoQuality) },
       { label: 'Kembali', action: cb.back },
     ],
   };

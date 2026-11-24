@@ -38,3 +38,12 @@ test('result screen shows the breakdown, labels provisional vs official, and esc
   assert.match(resultSpec(getMission('m4_delivery'), 'completed', null, false, {}).body, /tidak tersedia/);
   assert.equal(pauseSpec({ resume: noop, retry: noop, main: noop }).items.length, 3);
 });
+
+test('pause menu offers the settings while the game is paused', () => {
+  const noop = () => {};
+  let opened = false;
+  const s = pauseSpec({ resume: noop, retry: noop, main: noop, settings: () => { opened = true; } });
+  assert.deepEqual(s.items.map((i) => i.label), ['Lanjut', 'Ulangi', 'Pengaturan', 'Menu utama']);
+  s.items[2].action();
+  assert.equal(opened, true);
+});

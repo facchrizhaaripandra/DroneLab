@@ -19,7 +19,7 @@ export const PRESET_NAMES = { low: 'Rendah', medium: 'Sedang', high: 'Tinggi', c
 export const DEFAULT_SETTINGS = {
   keyboard: { keys: { ...DEFAULT_KEYS }, sensitivity: 1, ramp: 5 },           // ramp: level 1..5
   controller: { mode: 2, sensitivity: 1, deadzone: 0.15, invertY: false, rumble: true },
-  graphics: { preset: 'medium', targetFps: 60, renderScale: 0.8, shadows: true, hudScale: 1 },
+  graphics: { preset: 'medium', targetFps: 60, renderScale: 0.8, shadows: true, hudScale: 1, autoQuality: false },
 };
 
 const num = (v, lo, hi, dflt) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
@@ -60,6 +60,7 @@ export function sanitize(raw) {
       renderScale: num(g.renderScale, 0.5, 1, base.renderScale ?? d.graphics.renderScale),
       shadows: bool(g.shadows, base.shadows ?? d.graphics.shadows),
       hudScale: pick(g.hudScale, [0.8, 0.9, 1], d.graphics.hudScale),
+      autoQuality: bool(g.autoQuality, d.graphics.autoQuality), // lower quality by itself when FPS is low (off = never)
     },
   };
 }

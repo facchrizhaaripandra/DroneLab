@@ -262,6 +262,43 @@ Tampilan diubah dari wireframe (kotak putih bergaris hitam) ke gaya stasiun kend
 
 Catatan: tone mapping juga berlaku untuk ekspor dataset (`?export=1`), jadi warna gambar dataset baru sedikit berbeda dari ekspor sebelumnya.
 
+## Tahap 12: S3 dan S4 lebih realistis
+
+File Blender baru: `S3_resor_hotel/resor_hotel_v06.blend` dan `S4_gunung_danau/gunung_danau_v06.blend` (v05 tetap ada). Skrip di `scripts/blender/`.
+- **Tanah tanpa kotak-kotak** (`bake_terrain.py`): zona material per-face di-bake menjadi satu peta warna 4096 px. Batas zona dikaburkan, dibelokkan dengan noise (domain warp) lalu ditajamkan lagi, tiap zona memakai teksturnya sendiri di dua skala (pengulangan tidak terlihat), lereng curam otomatis menjadi batu. Ditambah normal map detail berulang (KHR_texture_transform). Terrain kini satu material, sehingga GLB lebih kecil.
+- **S4 gunung** (`s4_reshape.py`, `s4_zones.py`): lereng atas (di atas ~95 m) diberi punggungan dan alur (sebelumnya piramida halus). Pohon, batu, jalur, dan sungai ikut diturunkan atau dinaikkan ke permukaan baru. Zona tanah dibuat ulang dari ketinggian: hutan, rumput dengan petak kering, kerikil, batu dan pasir vulkanik di puncak, kerikil di tepi danau, batu berlumut di tebing rendah.
+- **Air** (`water_backdrop.py`, `s4_water.py`, `s3_coast.py`): danau dan laut berupa satu grid dengan warna kedalaman (vertex color), riak dari normal map. Sungai dibangun ulang mengikuti lereng (jeram putih di bagian curam, kolam lebih tenang, dasar batu basah). Air terjun bergaris dengan buih di kolamnya. Laut S3 bergradasi dari pirus ke biru tua, dengan buih ombak di garis pantai, garis buih kedua di lepas pantai, dan pasir basah.
+- **Tanpa tepi peta**: S4 dikelilingi pegunungan sejauh 2,2 km. S3 mendapat pantai yang berlanjut ke dua tanjung (membentuk teluk), bukit hijau dengan pohon dan kelapa, dan laut sampai cakrawala. Semua bernama `backdrop_*`: `export_scene.py` melewatinya untuk tanah dan collider, jadi batas terbang dan heightfield tidak berubah.
+- **Web** (`world.js`): air di peta realistis memantulkan gradasi langit (envMap), sehingga danau dan laut tidak terlihat seperti pelat cat.
+
+Catatan: warna batu besar S4 dibuat lebih abu-abu (`rock_boulder_grey_diff.png`). Air terjun dan buih memakai transparansi (alpha blend).
+
+## Pengaturan dari menu Jeda, kualitas grafik tetap
+
+- Menu Jeda punya pilihan **Pengaturan** (keyboard, controller, grafik). Permainan tetap terjeda di belakangnya, dan "Kembali" mengarah lagi ke menu Jeda.
+- Kualitas grafik tidak lagi turun sendiri saat bermain. Penurunan otomatis kini pilihan **Turunkan otomatis** di Pengaturan grafik (bawaan: Mati, juga untuk pengaturan lama yang tersimpan). Jika dinyalakan, perilakunya sama seperti sebelumnya (turun satu tingkat jika FPS rendah selama 2 detik).
+
+## Peta mini mengikuti drone
+
+Peta mini dulu hanya menggambar ±110 m di sekitar titik start, sehingga di peta realistis (sampai 1 km) panah drone keluar dari panel dan hilang. Sekarang lapisan statisnya digambar seukuran dunia, dan tiap pembaruan menampilkan potongan 296 px yang berpusat pada drone (`hud.js`). Di dekat tepi dunia peta berhenti bergeser dan panah bergerak ke pinggir, tetap di dalam panel. Dunia 200 m tampil persis seperti sebelumnya (tidak bergeser).
+
+## Tahap 13: S4 Pegunungan dan danau dibuat ulang (v07)
+
+File Blender `S4_gunung_danau/gunung_danau_v07.blend` (v06 tetap ada). Skrip: `scripts/blender/s4v07_*.py`.
+- **Relief baru 1,2 km**: gunung berapi dengan kawah, gunung kedua di timur, punggungan perbukitan. Lembah dibentuk erosi aliran (stream power implisit + difusi lereng, aliran multi-arah), jadi alurnya bercabang alami.
+- **Danau** di cekungan dengan tebing di sisi barat laut, warna menurut kedalaman. **Sungai** mengikuti alur lembah dari lereng gunung (dicari otomatis), lalu jatuh sebagai **air terjun 88 m** dari bibir tebing ke danau, dengan buih di kolamnya.
+- **Vegetasi baru** (bukan kerucut low-poly lagi): pohon daun lebar pegunungan, cemara gunung, pakis pohon, semak, pakis tanah. Daunnya foto asli (atlas daun Poly Haven `jacaranda_tree`, `fern_02`, CC0) yang disusun menjadi kartu kelompok daun. Sebaran mengikuti ekologi: hutan rapat di lembah dan dataran rendah, cemara di ketinggian menengah, semak di atas batas hutan, pakis di alur basah, punggungan tetap terbuka.
+- **Kemah** di padang tepi danau (titik start baru dengan helipad berhuruf H), tenda, pondok, tungku, dermaga. **Jalur pendakian** 1,8 km berkelok dari kemah ke bibir kawah. Batu Poly Haven (`rock_moss_set_01`, `rock_07`) di tebing, scree, dan dasar alur. Pegunungan latar sejauh 2,7 km.
+- **Web** (`realworld.js`, `instanceRepeats`): salinan mesh yang sama (pohon, batu) digabung menjadi `InstancedMesh` saat peta dimuat. Ekspor Blender tidak pernah menulis GPU instancing, jadi sebelumnya tiap pohon satu draw call (S4 v07: 7.400 objek). Ini berlaku untuk semua peta. Tes: `tests/instancing.test.js`.
+
+## Tahap 14: mobil dan pohon realistis di semua peta
+
+Pustaka aset baru `DroneLab3D/A2_aset_realistis/aset_v01.blend` (skrip `scripts/blender/asset_*.py`).
+- **Kendaraan** (`asset_cars.py`): sedan, hatchback, MPV, SUV, pikap, taksi, bus, truk boks, motor. Bodi dibuat dari penampang yang di-loft lalu dihaluskan (Catmull-Clark), dengan lengkung roda, kaca gelap, bemper, lampu depan/belakang, ban dan velg. Cat metalik dengan clearcoat, 42 kombinasi tipe dan warna, versi hangus untuk S1.
+- **Pohon** (`asset_trees.py`): pohon tropis (4 varian), pohon hutan tinggi, pohon jalan, pohon kering, kamboja, pohon hangus dan mati, kelapa, semak, semak hangus, pagar tanaman, rumpun bambu. Daun foto asli (Poly Haven `island_tree_02`, `fern_02`, `shrub_03`, CC0) disusun jadi kartu kelompok daun, kulit batang foto (`island_tree_02`, `palm_tree_bark`).
+- **Penggantian** (`asset_apply.py`, `asset_run.py`): tiap pohon lama diganti model baru di posisi, tinggi, dan pangkal yang sama. Mobil dicari di dalam objek mobil gabungan lama (satu kelompok bagian per kendaraan), tipe dipilih dari panjang dan tinggi, arah dari sumbu panjangnya. Objek mobil lama disembunyikan, tidak dihapus. Versi baru: S0 v05, S1 v08, S2 v06, S3 v07, S5 v05, S6 v06, S7 v06, S7b v06.
+- **Dunia misi/freeroam** (`world.js`): pohon kerucut diganti model dari `public/models/trees.glb` (0,35 MB) begitu termuat; kerucut tetap jadi cadangan bila file tidak ada.
+
 ## Kriteria selesai
 
 | Kriteria | Status |
@@ -297,3 +334,27 @@ Catatan: tone mapping juga berlaku untuk ekspor dataset (`?export=1`), jadi warn
 - Controller mati: event `gamepaddisconnected` atau `getGamepads()` kosong langsung mengembalikan perangkat ke keyboard dan menolkan aksi.
 - Tombol debug: tekan ` (backtick) untuk panel id, mapping, nilai sumbu, dan sumbu terpilih. Kalau stik masih salah, kirim isi panel ini.
 - Batas: indeks tombol pada controller non-standar bisa berbeda. Hanya sumbu yang dikoreksi.
+
+## Batas ketinggian drone
+
+Batas atas dihitung dari titik lepas landas, seperti drone sungguhan (DJI default 120 m), dan tidak lebih dari 120 m di atas tanah (aturan 400 ft). Di lereng tinggi drone tetap boleh naik minimal 30 m di atas tanah supaya tidak tersangkut gunung. Nilai `maxAgl` semua peta realistis: 120 m (dulu 60 m dari tanah, jadi di tanah tinggi bisa terbang lebih tinggi).
+
+Di peta realistis batas ini bukan tembok. Di atas batas: peringatan di layar 10 detik (`ALT_GRACE`, kira-kira jeda failsafe sinyal DJI). Lewat itu baling-baling, kamera, baterai dan rangka rusak bertahap, dan drone gagal lalu jatuh di detik ke-30 (`ALT_FAIL`). Turun kembali di bawah batas meredakan peringatan 2x lebih cepat, tapi kerusakan yang sudah terjadi tetap. Dunia misi (peta generate) tetap memakai langit-langit 50 m.
+
+## Kamera tidak tembus tanah
+
+Saat drone mendarat, kamera drone (PIP) dinaikkan sampai tanah di bawah dan di depan lensa tertutup, jadi tidak tembus ke bawah. Kamera ikut dan kamera depan juga memeriksa tanah di bawahnya dan tidak pernah turun di bawah kaki drone.
+
+Mode "Kamera depan drone" (tombol V): layar penuh menampilkan gambar kamera drone yang sama dengan popup (ikut gimbal dan miring badan drone), dan popup "Kamera drone" disembunyikan. Di mode lain popup tetap tampil. Kalau kamera rusak, layar jadi hitam.
+
+## Zoom kamera drone
+
+Zoom 1x sampai 6x (`ZOOM` di `camera-model.js`), kira-kira drone konsumen asli: Mini 4 Pro 4x, Air 3 3x optik plus digital, Mavic 3 Pro sampai 7x. Tombol `=` zoom masuk dan `-` zoom keluar (bisa ditahan), atau roda mouse; di controller tombol Back mengganti 1x, 2x, 3x, 4x, 6x. Tombol bisa diubah di Pengaturan. Zoom mempersempit sudut pandang kamera drone (popup dan layar penuh mode kamera depan), dan ikut menghitung objek yang terlihat: area di foto mengecil, jarak lihat bertambah sebanding zoom. Level zoom ditulis di label popup, atau di atas layar saat mode kamera depan.
+
+## Arah kamera saat diam (gimbal)
+
+Drone asli melayang tetap lurus; yang miring adalah gimbal kamera. Di sini juga begitu: drone diam di udara (stick di tengah), kamera diarahkan dengan `↑` / `↓` (ditahan, 45°/detik, rentang −90° sampai +30°), `Home` meluruskan kamera ke 0°, dan tombol Y di controller berganti 0°, −30°, −45°, −90°. Sudut ditampilkan di label popup (atau di atas layar saat mode kamera depan) dan ikut menghitung objek yang terlihat di foto dan skor. Dipasangkan dengan zoom dan mode kamera depan untuk mendapat sudut pandang serong.
+
+Kamera juga bisa diputar miring (roll, sudut serong): `[` miring kiri, `]` miring kanan (ditahan, 45°/detik, maksimal 45° tiap sisi), `Home` meluruskan semuanya. Sudutnya ditulis di label kamera (↻ kanan, ↺ kiri) dan dihitung di skor "horizon rata" pada foto. Belum ada tombol controller untuk roll.
+
+Gimbal bergerak seperti motor gimbal asli, bukan melompat: `Home`, tombol Y, dan perintah `look` menggerakkan kamera dengan animasi (mulai pelan, maksimal 120°/detik, melambat di ujung, sekitar 0,5 sampai 1 detik untuk sudut besar). Kamera pada model drone ikut bergerak.

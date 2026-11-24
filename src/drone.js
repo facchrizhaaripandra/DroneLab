@@ -2,7 +2,9 @@
 // background; the simple primitive model is shown until it arrives and stays as the fallback if it fails.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { CAM } from './camera-model.js';
+import { CAM, clampZoom } from './camera-model.js';
+export const GIMBAL_MAX_SPEED = 120; // derajat per detik
+export const GIMBAL_ROLL_MAX = 45; // derajat ke kiri atau kanan
 
 const DEG = Math.PI / 180;
 const SCORCH = new THREE.Color(0x2a1a14);
@@ -53,7 +55,11 @@ export function createDrone(scene, modelUrl = DRONE_MODEL_URL) {
   // Drone camera for the PIP: nose-mounted, yaw follows the drone, pitch is a separate gimbal angle.
   const pipCamera = new THREE.PerspectiveCamera(CAM.vfov, CAM.aspect, 0.1, 400);
   pipCamera.rotation.order = 'YXZ';
-  let gimbalPitch = -10; // degrees, DSL look(pitch) range is -90..30
+  // Gimbal: nilai sekarang (yang dilihat kamera) mengejar nilai target dengan percepatan halus, seperti motor gimbal asli.
+  let gimbalRoll = 0, rollTarget = 0, rollVel = 0; // derajat, + = kamera miring ke kanan
+  let zoomTarget = 1, zoomNow = 1; // zoom kamera drone (camera-model.js ZOOM)
+  let groundFn = null; // (x, z) -> ground height (realistic scenes); null = flat ground at 0
+  let gimbalPitch = -10, pitchTarget = -10, pitchVel = 0; // degrees, DSL look(pitch) range is -90..30
 
   const spray = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0x6ec6ff, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
   spray.visible = false;
@@ -107,6 +113,17 @@ export function createDrone(scene, modelUrl = DRONE_MODEL_URL) {
     if (lastDamage) applyBody(lastDamage.body);
   }, undefined, (err) => console.warn('drone.glb not loaded, using the simple model:', err && err.message ? err.message : err));
 
+  // Kecepatan gimbal mengejar target: dibatasi GIMBAL_MAX_SPEED dan dihaluskan (mulai pelan, melambat di akhir).
+  const stepGimbal = (cur, tgt, axis, dt) => {
+    const d = tgt - cur;
+    const want = Math.max(-GIMBAL_MAX_SPEED, Math.min(GIMBAL_MAX_SPEED, d * 3));
+    let v = axis === 'p' ? pitchVel : rollVel;
+    v += (want - v) * (1 - Math.exp(-dt / 0.08)); // kira-kira kritis: tanpa melewati target
+    if (Math.abs(d) < 0.03 && Math.abs(v) < 2) { v = 0; cur = tgt; } else cur += v * dt;
+    if (axis === 'p') pitchVel = v; else rollVel = v;
+    return cur;
+  };
+
   return {
     group,
     pipCamera,
@@ -119,8 +136,18 @@ export function createDrone(scene, modelUrl = DRONE_MODEL_URL) {
     },
     // PIP feed is dead when the camera is broken.
     get cameraOk() { return camHealth > 0.05; },
-    setGimbalPitch(deg) { gimbalPitch = Math.max(-90, Math.min(30, deg)); },
+    setGround(fn) { groundFn = fn; },
+    // snap = true: langsung ke sudut itu tanpa animasi (dunia baru). Tanpa snap: gimbal bergerak halus ke target.
+    setGimbalRoll(deg, snap = false) { rollTarget = Math.max(-GIMBAL_ROLL_MAX, Math.min(GIMBAL_ROLL_MAX, deg)); if (snap) { gimbalRoll = rollTarget; rollVel = 0; } },
+    nudgeGimbalRoll(d) { this.setGimbalRoll(rollTarget + d); },
+    get gimbalRoll() { return gimbalRoll; },
+    setZoom(z, snap = false) { zoomTarget = clampZoom(z); if (snap) zoomNow = zoomTarget; },
+    get zoom() { return zoomTarget; },
+    setGimbalPitch(deg, snap = false) { pitchTarget = Math.max(-90, Math.min(30, deg)); if (snap) { gimbalPitch = pitchTarget; pitchVel = 0; } },
+    nudgeGimbal(d) { this.setGimbalPitch(pitchTarget + d); },
     get gimbal() { return gimbalPitch; },
+    get gimbalTarget() { return pitchTarget; },
+    get gimbalMoving() { return Math.abs(pitchTarget - gimbalPitch) + Math.abs(rollTarget - gimbalRoll) > 0.05; },
     // Spray cone under the drone (M3). One mesh, shown while spraying.
     setSpray(on) { spray.visible = on; },
     setSprayWidth(w) { spray.scale.set(w, 1, w); },
@@ -141,8 +168,18 @@ export function createDrone(scene, modelUrl = DRONE_MODEL_URL) {
       group.rotation.set(pitch * DEG, -yaw * DEG, -roll * DEG);
 
       const sy = Math.sin(yaw * DEG), cy = Math.cos(yaw * DEG);
-      pipCamera.position.set(group.position.x + sy * 0.3, group.position.y + 0.02, group.position.z - cy * 0.3);
-      pipCamera.rotation.set(gimbalPitch * DEG, -yaw * DEG, -roll * DEG); // the picture tilts with the drone, like the horizon score assumes
+      // Lensa tidak boleh masuk ke tanah saat drone mendarat: naikkan sampai tanah di bawah dan di depan lensa tertutup.
+      const cx = group.position.x + sy * 0.3, cz = group.position.z - cy * 0.3;
+      let cyy = group.position.y + 0.02;
+      const gAt = (x, z) => (groundFn ? groundFn(x, z) : 0);
+      const floor = Math.max(gAt(cx, cz), gAt(cx + sy * 1.5, cz - cy * 1.5)) + 0.3;
+      if (f.mode === 'landed' || cyy < floor) cyy = Math.max(cyy, floor);
+      pipCamera.position.set(cx, cyy, cz);
+      gimbalPitch = stepGimbal(gimbalPitch, pitchTarget, 'p', dt);
+      gimbalRoll = stepGimbal(gimbalRoll, rollTarget, 'r', dt);
+      zoomNow += (zoomTarget - zoomNow) * (1 - Math.exp(-dt * 10));
+      if (Math.abs(zoomNow - pipCamera.zoom) > 1e-3) { pipCamera.zoom = zoomNow; pipCamera.updateProjectionMatrix(); }
+      pipCamera.rotation.set(gimbalPitch * DEG, -yaw * DEG, -(roll + gimbalRoll) * DEG); // the picture tilts with the drone, like the horizon score assumes
 
       if (gimbalNode) gimbalNode.rotation.x = gimbalPitch * DEG; // the camera on the model tilts with the gimbal
       if (spray.visible) { spray.scale.y = Math.max(0.5, group.position.y); spray.position.y = -spray.scale.y / 2; } // apex at the drone, base on the ground

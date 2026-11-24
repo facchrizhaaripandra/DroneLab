@@ -9,13 +9,15 @@ export const DEFAULT_KEYS = {
   photo: 'KeyF', record: 'KeyR', spray: 'KeyG', // spray is hold-to-spray
   pickupDrop: 'KeyP', mark: 'KeyM', thermal: 'KeyT',
   command: 'Enter', panelAI: 'Tab', addObject: 'KeyB', camera: 'KeyV', pause: 'Escape',
+  zoomIn: 'Equal', zoomOut: 'Minus', // juga roda mouse
+  gimbalUp: 'ArrowUp', gimbalDown: 'ArrowDown', gimbalRollLeft: 'BracketLeft', gimbalRollRight: 'BracketRight', gimbalReset: 'Home', // arah kamera, drone tetap diam
 };
 
 // One-shot actions fired on key press (name is what the rest of the app listens for).
 export const KEY_IMPULSES = {
   home: 'home', photo: 'photo', record: 'record', pickupDrop: 'pickup_drop', mark: 'mark',
   thermal: 'thermal', command: 'command', panelAI: 'panel_ai', addObject: 'add_object',
-  camera: 'camera_next', pause: 'pause',
+  camera: 'camera_next', pause: 'pause', zoomIn: 'zoom_in', zoomOut: 'zoom_out', gimbalReset: 'gimbal_reset',
 };
 
 // Standard-mapping gamepad button indices.
@@ -28,7 +30,7 @@ export const PAD = {
 export const PAD_IMPULSES = {
   [PAD.B]: 'home', [PAD.X]: 'photo', [PAD.DUP]: 'mark', [PAD.DLEFT]: 'record',
   [PAD.DRIGHT]: 'pickup_drop', [PAD.DDOWN]: 'thermal', [PAD.RB]: 'camera_next',
-  [PAD.LB]: 'camera_prev', [PAD.START]: 'pause',
+  [PAD.LB]: 'camera_prev', [PAD.START]: 'pause', [PAD.BACK]: 'zoom_cycle', [PAD.Y]: 'gimbal_cycle',
 };
 
 const FACE = {

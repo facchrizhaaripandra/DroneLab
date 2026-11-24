@@ -168,3 +168,18 @@ test('settings screens: values step, clamp and write through the callbacks', () 
   g.items[0].step(1); g.items[2].step(-1); g.items[3].step(1);
   assert.deepEqual(calls.slice(5), [['preset', 'high'], ['custom', 'graphics.renderScale', 0.7], ['custom', 'graphics.shadows', false]]);
 });
+
+test('graphics never change by themselves unless the player turns auto quality on', () => {
+  assert.equal(S.DEFAULT_SETTINGS.graphics.autoQuality, false);
+  const old = { graphics: { preset: 'high', targetFps: 60, renderScale: 1, shadows: true, hudScale: 1 } }; // saved before the option existed
+  assert.equal(S.sanitize(old).graphics.autoQuality, false);
+  assert.equal(S.sanitize({ graphics: { autoQuality: true } }).graphics.autoQuality, true);
+  assert.equal(S.sanitize({ graphics: { autoQuality: 'yes' } }).graphics.autoQuality, false);
+  const calls = [];
+  const g = graphicsSpec(() => S.DEFAULT_SETTINGS, { set: (p, v) => calls.push([p, v]), preset() {}, setCustom() {}, back() {} });
+  const item = g.items.find((i) => i.label === 'Turunkan otomatis');
+  assert.equal(item.note, 'Mati');
+  assert.match(g.subtitle, /tetap/);
+  item.step(1);
+  assert.deepEqual(calls, [['graphics.autoQuality', true]]);
+});

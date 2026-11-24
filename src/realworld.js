@@ -1,6 +1,7 @@
 // Realistic environments made in Blender (public/scenes/<id>/scene.glb + scene.json).
 // scene.json comes from scripts/blender/export_scene.py: spawn offset, flight bounds, ground heightfield
 // and AABB colliders, already in simulator coordinates with the spawn pad at (0, 0, 0).
+import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { makeHeightSampler, sceneColliders, sceneLimits, sceneMapBoxes } from './terrain.js';
 
@@ -32,9 +33,42 @@ export async function loadScene(id, onProgress = () => {}) {
   return entry;
 }
 
+// Blender writes every copy of a tree or rock as its own node (the exporter's GPU-instancing option does not take
+// effect), so a map can have thousands of meshes = thousands of draw calls. Copies that share geometry and
+// material become one InstancedMesh: one draw call per tree variant. Runs once per loaded scene.
+export function instanceRepeats(root, min = 4) {
+  if (root.userData.instanced) return 0;
+  root.userData.instanced = true;
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const groups = new Map();
+  root.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.children.length) return;
+    const k = `${o.geometry.uuid}|${o.material.uuid}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(o);
+  });
+  let merged = 0;
+  const m = new THREE.Matrix4();
+  for (const list of groups.values()) {
+    if (list.length < min) continue;
+    const first = list[0];
+    const inst = new THREE.InstancedMesh(first.geometry, first.material, list.length);
+    inst.name = first.name.replace(/[_.]\d+$/, '');
+    list.forEach((o, i) => { inst.setMatrixAt(i, m.multiplyMatrices(inv, o.matrixWorld)); o.removeFromParent(); });
+    inst.instanceMatrix.needsUpdate = true;
+    inst.computeBoundingSphere();
+    root.add(inst);
+    merged += list.length;
+  }
+  return merged;
+}
+
 // Turns a loaded scene into the pieces buildWorld() and Flight need.
 export function prepareScene({ meta, gltf }) {
   const root = gltf.scene;
+  root.position.set(0, 0, 0);
+  instanceRepeats(root);
   root.position.set(meta.offset[0], meta.offset[1], meta.offset[2]); // spawn pad -> (0, 0, 0)
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -52,6 +86,7 @@ export function prepareScene({ meta, gltf }) {
     colliders: sceneColliders(meta.colliders),
     limits: sceneLimits(meta),
     mapBoxes: sceneMapBoxes(meta.mapBoxes),
+    fires: meta.fires || [], // sumber api untuk animasi kebakaran (fire.js), koordinat dunia
     bounds: Math.ceil(Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ))),
     title: meta.title,
     id: meta.id,
@@ -63,8 +98,4 @@ export function realSceneConfig(base, prepared) {
   return {
     ...base,
     bounds: prepared.bounds,
-    buildings: [], obstacles: [], rings: [], trees: [], solids: [],
-    mapBoxes: prepared.mapBoxes,
-    realScene: prepared,
-  };
-}
+    buildings: [], obstacles: [], rings

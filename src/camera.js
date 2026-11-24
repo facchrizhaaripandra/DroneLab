@@ -30,6 +30,13 @@ export class FollowCamera {
     return this.mode;
   }
 
+  // First-person view: lift the lens so the terrain just ahead of it does not cover the picture.
+  _lift(x, y, z, dx, dz) {
+    const g = (a, b) => (this.ground ? this.ground(a, b) : 0);
+    const top = Math.max(g(x, z), g(x + dx * 1.5, z + dz * 1.5), g(x + dx * 4, z + dz * 4));
+    return Math.max(y, top + 0.3);
+  }
+
   // target = interpolated drone position, yawDeg = drone heading, dt = real frame time (s)
   update(target, yawDeg, dt) {
     const goal = yawDeg * DEG;
@@ -38,7 +45,7 @@ export class FollowCamera {
       const sy = Math.sin(goal), cy = Math.cos(goal);
       if (id === 'fpv') {
         this.camera.up.set(0, 1, 0);
-        this.camera.position.set(target.x + sy * 0.4, target.y + 0.1, target.z - cy * 0.4);
+        this.camera.position.set(target.x + sy * 0.4, this._lift(target.x + sy * 0.4, target.y + 0.1, target.z - cy * 0.4, sy, -cy), target.z - cy * 0.4);
         this.look.set(target.x + sy * 10, target.y - 0.8, target.z - cy * 10);
       } else { // top: straight down, screen "up" follows the drone heading
         this.camera.position.set(target.x, target.y + 30, target.z);
@@ -71,8 +78,11 @@ export class FollowCamera {
     this.look.y += (target.y + 0.4 - this.look.y) * k;
     this.look.z += (target.z - this.look.z) * k;
 
-    const floor = (this.ground ? this.ground(this.pos.x, this.pos.z) : 0) + 0.6;
-    this.camera.position.set(this.pos.x, Math.max(this.pos.y, floor), this.pos.z); // never below ground
+    // Never below the ground: check the ground under the camera and halfway to the drone, and never below the
+    // drone's own feet (the height map is coarser than the mesh, so a margin is needed on slopes).
+    const g = (x, z) => (this.ground ? this.ground(x, z) : 0);
+    const floor = Math.max(g(this.pos.x, this.pos.z), g((this.pos.x + target.x) / 2, (this.pos.z + target.z) / 2)) + 0.9;
+    this.camera.position.set(this.pos.x, Math.max(this.pos.y, floor, target.y + 0.7), this.pos.z);
     this.camera.lookAt(this.look);
   }
 }

@@ -64,6 +64,6 @@ export function canSee(label, pos, yaw, config, extra = [], opts = {}) {
     case 'target': return any(config.rings.filter((r) => !r.passed));
     case 'dropzone': return !!(config.mission && config.mission.drop && inView(pos, yaw, config.mission.drop.x, config.mission.drop.z));
     default:
-      return visibleObjects({ pos, yaw, pitch: opts.pitch ?? -10 }, config, opts).some((v) => v.label === label);
+      return visibleObjects({ pos, yaw, pitch: opts.pitch ?? -10, zoom: opts.zoom || 1 }, config, opts).some((v) => v.label === label);
   }
 }

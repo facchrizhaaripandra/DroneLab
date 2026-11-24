@@ -18,6 +18,11 @@ function approach(v, target, tau, maxAccel, dt) {
   return v + dv;
 }
 
+// Di atas batas ketinggian: peringatan 10 detik (kira-kira jeda failsafe sinyal DJI), lalu kerusakan bertahap
+// sampai drone jatuh di detik ke-30.
+export const ALT_GRACE = 10;
+export const ALT_FAIL = 30;
+
 export class Flight {
   constructor() {
     this.mode = 'landed';          // landed | takeoff | flying | landing
@@ -29,6 +34,9 @@ export class Flight {
     this.roll = 0;                 // degrees, positive = right side down
     this.action = { yaw: 0, climb: 0, strafe: 0, forward: 0 };
     this.takeoffAlt = 0;
+    this.homeY = 0;
+    this.ceiling = Infinity;
+    this.overTime = 0;  // detik di atas batas ketinggian
     this.collision = false;        // true while touching a box
     this.collisionCount = 0;       // rising edges
     this.damage = null;            // DroneDamage (damage.js) or null for an undamageable drone
@@ -60,6 +68,7 @@ export class Flight {
     if (this.mode !== 'landed') return false;
     if (this.damage && this.damage.fx.lift < 0.35) return false; // too damaged to lift off
     const g = this.groundY();
+    this.homeY = g; // ketinggian titik lepas landas: batas atas dihitung dari sini seperti drone asli
     this.takeoffAlt = g + clamp(h, 1, this.limits ? this.limits.maxAgl : PHYS.maxAlt);
     this.mode = 'takeoff';
     return true;
@@ -128,6 +137,7 @@ export class Flight {
     this.pitch += (-clamp(vf / P.maxSpeed, -1, 1) * P.tiltMax - this.pitch) * kt;
     this.roll += (clamp(vr / P.maxSpeed, -1, 1) * P.tiltMax - this.roll) * kt;
 
+    if (this.mode === 'landed') this.overTime = 0;
     if (this.mode !== 'landed') {
       this.pos[0] += this.vel[0] * dt;
       this.pos[1] += this.vel[1] * dt;
@@ -142,8 +152,24 @@ export class Flight {
         this._clampAxis(0, P.mapHalf);
         this._clampAxis(2, P.mapHalf);
       }
-      const ceil = L ? this.groundY() + L.maxAgl : P.maxAlt;
-      if (this.pos[1] > ceil) { this.pos[1] = ceil; if (this.vel[1] > 0) this.vel[1] = 0; }
+      // Batas atas drone asli: 120 m dari titik lepas landas (default DJI), dan tak lebih dari 120 m di atas tanah
+      // (aturan 400 ft). Di lereng tetap boleh naik minimal 30 m di atas tanah agar tidak tersangkut gunung.
+      // Tidak ada tembok: melewati batas memberi peringatan ALT_GRACE detik, lalu motor dan baterai rusak
+      // sampai drone gagal di ALT_FAIL detik (tanpa peta realistis, langit-langit lama 50 m tetap tembok).
+      if (L) {
+        const gy = this.groundY();
+        this.ceiling = Math.min(gy + L.maxAgl, Math.max(this.homeY + L.maxAgl, gy + 30));
+        if (this.pos[1] > this.ceiling) {
+          this.overTime += dt;
+          if (this.overTime > ALT_GRACE && dmg && !dmg.destroyed) {
+            const ch = dmg.burn(dt * 2 / (ALT_FAIL - ALT_GRACE));
+            if (ch.length && this.onDamage) this.onDamage(ch);
+          }
+        } else this.overTime = Math.max(0, this.overTime - dt * 2); // turun kembali: peringatan mereda
+      } else {
+        this.ceiling = P.maxAlt;
+        if (this.pos[1] > P.maxAlt) { this.pos[1] = P.maxAlt; if (this.vel[1] > 0) this.vel[1] = 0; }
+      }
 
       const hit = this._collide(world, P.radius);
       if (hit && !this.collision) this.collisionCount++;

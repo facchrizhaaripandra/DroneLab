@@ -36,7 +36,7 @@ export function sceneColliders(list, minHeight = 0.3) {
 // Flight limits for Flight.limits: map rectangle and the ceiling above the local ground.
 export function sceneLimits(meta) {
   const b = meta.bounds;
-  return { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, maxAgl: meta.maxAgl || 60 };
+  return { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, maxAgl: meta.maxAgl || 120 };
 }
 
 // Minimap boxes ({x, z, w, d}) for hud.js.

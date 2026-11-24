@@ -48,6 +48,8 @@ export class MissionRun {
     this.text = '';
     // Camera and mission state (M1, M2, M3, M5). `gimbal` is kept up to date by main.js.
     this.gimbal = -10;
+    this.gimbalRoll = 0; // diisi main.js
+    this.zoom = 1;      // kamera drone, diisi main.js
     this.onNotice = () => {};   // main shows these as toasts (tank empty, refilled)
     this.recording = false;
     this.spraying = false;
@@ -72,7 +74,7 @@ export class MissionRun {
   get tMs() { return Math.round(this.t * 1000); }
 
   record(type, sim, extra) {
-    const e = { t_ms: this.tMs, type, pose: { pos: [sim.pos[0], sim.pos[1], sim.pos[2]], yaw: sim.yaw, pitch: this.gimbal, roll: sim.roll || 0 }, ...extra };
+    const e = { t_ms: this.tMs, type, pose: { pos: [sim.pos[0], sim.pos[1], sim.pos[2]], yaw: sim.yaw, pitch: this.gimbal, zoom: this.zoom, roll: (sim.roll || 0) + this.gimbalRoll }, ...extra };
     this.log.push(e);
     this.onEvent(type, e);
     return e;
@@ -229,7 +231,7 @@ export class MissionRun {
   }
   _cam(sim) {
     const p = this.pose;
-    p.pos[0] = sim.pos[0]; p.pos[1] = sim.pos[1]; p.pos[2] = sim.pos[2]; p.yaw = sim.yaw; p.pitch = this.gimbal;
+    p.pos[0] = sim.pos[0]; p.pos[1] = sim.pos[1]; p.pos[2] = sim.pos[2]; p.yaw = sim.yaw; p.pitch = this.gimbal; p.zoom = this.zoom;
     return p;
   }
 

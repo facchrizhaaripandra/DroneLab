@@ -4,6 +4,9 @@
 // Roll is not used for projection (it only matters for the "horizon level" photo score).
 const DEG = Math.PI / 180;
 export const CAM = { vfov: 70, aspect: 16 / 9 };
+// Zoom kamera drone konsumen: 1x sampai 6x (Mini 4 Pro 4x, Air 3 3x optik + digital, Mavic 3 Pro 7x; rata-rata 3-6x).
+export const ZOOM = { min: 1, max: 6, presets: [1, 2, 3, 4, 6] };
+export const clampZoom = (z) => Math.max(ZOOM.min, Math.min(ZOOM.max, z));
 const TAN = Math.tan((CAM.vfov / 2) * DEG);
 
 const round = (v, n = 3) => Math.round(v * 10 ** n) / 10 ** n;
@@ -19,8 +22,9 @@ export function project(pose, o) {
   if (z < 0.5) return null;
   const x = dx * cy + dz * sy;                            // right
   const y = -dx * sy * sp + dy * cp + dz * cy * sp;       // up
-  const u = 0.5 + x / (z * TAN * CAM.aspect) / 2, v = 0.5 - y / (z * TAN) / 2;
-  const w = (o.hx || 0.01) / (z * TAN * CAM.aspect), h = (o.hy || 0.01) / (z * TAN); // normalized full width/height
+  const T = TAN / (pose.zoom || 1);                       // zoom narrows the field of view
+  const u = 0.5 + x / (z * T * CAM.aspect) / 2, v = 0.5 - y / (z * T) / 2;
+  const w = (o.hx || 0.01) / (z * T * CAM.aspect), h = (o.hy || 0.01) / (z * T); // normalized full width/height
   const x0 = Math.max(0, u - w / 2), x1 = Math.min(1, u + w / 2);
   const y0 = Math.max(0, v - h / 2), y1 = Math.min(1, v + h / 2);
   const cw = Math.max(0, x1 - x0), ch = Math.max(0, y1 - y0);
@@ -36,7 +40,7 @@ export function visibleList(pose, objects, blocked = null) {
   const out = [];
   for (const o of objects) {
     const p = project(pose, o);
-    if (!p || p.dist > (o.range || 60) || !inFrame(p)) continue;
+    if (!p || p.dist > (o.range || 60) * (pose.zoom || 1) || !inFrame(p)) continue;
     if (blocked && blocked(o)) continue;
     out.push({ label: o.label, id: o.id, dist: round(p.dist, 1), area: round(p.area, 4), box: p.box.map((b) => round(b, 3)) });
   }
