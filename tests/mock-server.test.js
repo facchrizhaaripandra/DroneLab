@@ -80,6 +80,7 @@ test('AI dies while the simulator is running: one failed call flips the indicato
 // ---- WebSocket telemetry and the new missions over a real socket ----
 import { wsParse } from '../mock-server/server.js';
 import { makeMissionConfig } from '../src/worldconfig.js';
+import { makeRunConfig } from '../src/scenarios.js';
 import { Flight } from '../src/flight.js';
 import { DroneDamage } from '../src/damage.js';
 
@@ -132,7 +133,7 @@ test('M5 over HTTP: variants, run config, report endpoint and the score agree wi
   const gw = createGateway(s.url, { WebSocketImpl: class { constructor() { throw new Error('no ws'); } } });
   await gw.check();
   const list = await gw.missions();
-  assert.deepEqual(list.find((m) => m.id === 'm5_inspeksi').variants, ['gedung', 'jembatan']);
+  assert.deepEqual(list.find((m) => m.id === 'm5_inspeksi').variants, ['gedung', 'jembatan', 'gedung-acak', 'jembatan-acak']);
   const { run_id, config } = await gw.startRun({ mission_id: 'm5_inspeksi', variant: 'jembatan', player: 'tes' });
   assert.equal(config.mission.variant, 'jembatan');
   const run = new MissionRun('m5_inspeksi', config, (t, e) => gw.event(run_id, e));
@@ -160,8 +161,12 @@ test('M1 and M2 start over HTTP with every variant', async () => {
   await gw.check();
   for (const [id, v] of [['m1_sar', 'gedung'], ['m1_sar', 'hutan'], ['m2_foto', 'hotel'], ['m2_foto', 'gunung']]) {
     const r = await gw.startRun({ mission_id: id, variant: v, player: 'tes' });
-    assert.deepEqual(r.config, makeMissionConfig(id, 42, v));
+    assert.deepEqual(r.config, makeRunConfig(id, 42, v)); // peta realistis (skenario)
+    assert.ok(r.config.scene, `${id}:${v} harus menunjuk peta realistis`);
     assert.equal(r.config.mission.variant, v);
+    const old = await gw.startRun({ mission_id: id, variant: `${v}-acak`, player: 'tes' }); // misi prosedural lama
+    assert.deepEqual(old.config, makeMissionConfig(id, 42, v));
+    assert.equal(old.config.scene, undefined);
   }
   await s.close();
 });

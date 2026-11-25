@@ -2,7 +2,7 @@
 // If the gateway is not reachable, a local stub takes over so missions still work (provisional score).
 import { MISSIONS, scoreFromEvents } from './missions.js';
 import { inspectionReport } from './scoring.js';
-import { makeMissionConfig } from './worldconfig.js';
+import { makeRunConfig } from './scenarios.js';
 
 const TIMEOUT_MS = 1500;      // gateway calls
 const AI_TIMEOUT_MS = 2000;   // detect, decide (SHARED section 5)
@@ -18,7 +18,7 @@ export function createStubGateway() {
     async startRun({ mission_id, variant }) {
       const seed = 42;
       const run_id = `local_${++n}`;
-      const config = makeMissionConfig(mission_id, seed, variant === 'kota' ? undefined : variant);
+      const config = makeRunConfig(mission_id, seed, variant);
       runs.set(run_id, { mission_id, config, log: [] });
       lastId = run_id;
       return { api_version: '1', run_id, seed, config };

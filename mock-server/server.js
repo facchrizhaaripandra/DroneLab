@@ -8,7 +8,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { MISSIONS, scoreFromEvents } from '../src/missions.js';
 import { inspectionReport } from '../src/scoring.js';
-import { makeMissionConfig } from '../src/worldconfig.js';
+import { makeRunConfig } from '../src/scenarios.js';
 import { parseNatural } from '../src/nlparse.js';
 
 // ---- minimal WebSocket server side (no dependencies) ----
@@ -95,7 +95,7 @@ export function createMockServer({ ai = process.env.MOCK_AI !== 'down' } = {}) {
       const seed = 42, run_id = `r_${++n}`;
       const def = MISSIONS.find((m) => m.id === body.mission_id);
       const variant = def.variants ? (def.variants.includes(body.variant) ? body.variant : def.variants[0]) : undefined;
-      const config = makeMissionConfig(body.mission_id, seed, variant);
+      const config = makeRunConfig(body.mission_id, seed, variant);
       runs.set(run_id, { mission_id: body.mission_id, variant, player: body.player || 'anon', config, log: [] });
       return send(res, 200, { run_id, seed, config });
     }

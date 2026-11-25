@@ -439,3 +439,22 @@ Di `scripts/blender/export_scene.py`, collider dibuat supaya mengikuti bentuk ya
 - **Detail tipis tanpa collider.** Objek buatan `bld_lib.py` menyimpan `dl_min_part`, sehingga rangka kaca, teralis, dan tiang tipis tidak jadi collider.
 
 `tests/hitbox.test.js` memeriksa bahwa drone bisa lewat di bawah lengan lampu di kawasan perkotaan.
+
+## Misi utama di peta realistis
+
+Setiap misi utama sekarang punya varian **peta realistis** (nama biasa di menu: gedung, hutan, hotel, gunung, sawah, kota, jembatan) dan varian **acak** lama (`-acak`, `acak`, `lahan`) yang tetap bisa dimainkan.
+
+| Misi | Peta realistis |
+| --- | --- |
+| M1 gedung / hutan | S1 gedung terbakar / S2 hutan terbakar |
+| M2 hotel / gunung | S3 resor hotel / S4 pegunungan dan danau |
+| M3 sawah | S5 sawah |
+| M4 kota | S6 kawasan perkotaan |
+| M5 gedung / jembatan | S7 menara inspeksi / S7b jembatan gantung |
+
+- `src/scenarios-data.js`: titik misi per peta (korban, api, asap, bidikan, petak sawah, titik ambil/antar, zona terlarang, panel dan cacat), dalam koordinat dunia yang sama dengan `scene.json`. Bentuk `mission` sama dengan misi prosedural, jadi `missions.js`, `scoring.js`, `vision.js`, `agri.js` tidak berubah.
+- `src/scenarios.js`: `makeRunConfig(misi, seed, varian)` dipakai gateway stub dan mock server; hasilnya membawa `scene` (id peta) dan `scenario` (judul, ringkasan). `main.js` memuat peta itu (dengan progres) sebelum dunia dibangun.
+- Kamera mengenal dinding peta (`wallBlocks` di `vision.js`): korban di balik tembok dan cacat di sisi lain gedung tidak terlihat.
+- Peta realistis: api digambar dari `scene.json`; kerusakan panas dari `main.js` (zona api misi hanya mencatat peristiwa), air dari grid `scene.json`.
+- `tests/scenarios.test.js`: tiap titik berada di dalam peta dan tidak di dalam benda, korban bisa ditandai dan cacat bisa difoto dari posisi yang bisa dicapai, petak sawah bisa disemprot 90%+, bidikan M2 bisa dipenuhi, titik ambil/antar M4 bebas.
+- Untuk menambah atau memindah titik: ubah `scenarios-data.js` lalu jalankan `node --test tests/scenarios.test.js`.

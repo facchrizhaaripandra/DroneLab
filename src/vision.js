@@ -2,7 +2,8 @@
 //  - detect("label") in scripts: yes/no for one label;
 //  - the `visible` list inside photo/mark events (ground truth for the scorer, SHARED section 5).
 // Old labels (building, obstacle, target, dropzone) use a simple view cone. Mission objects
-// (person, fire, smoke, landmark, defect) use the real camera model, with smoke blocking the view.
+// (person, fire, smoke, landmark, defect) use the real camera model, with smoke blocking the view
+// (and, in realistic scenes, walls: wallBlocks).
 import { visibleList } from './camera-model.js';
 
 const DEG = Math.PI / 180;
@@ -23,9 +24,9 @@ export function worldObjects(config) {
   if (cache.has(config)) return cache.get(config);
   const m = config.mission || {}, out = [];
   for (const v of m.victims || []) out.push({ label: 'person', id: v.id, x: v.x, y: v.y + 0.5, z: v.z, hx: 0.5, hy: 0.5 });
-  for (const f of m.fires || []) out.push({ label: 'fire', id: f.id, x: f.x, y: 1.5, z: f.z, hx: f.r * 0.6, hy: 1.5 });
+  for (const f of m.fires || []) out.push({ label: 'fire', id: f.id, x: f.x, y: (f.y || 0) + 1.5, z: f.z, hx: f.r * 0.6, hy: 1.5 });
   for (const s of m.smoke || []) out.push({ label: 'smoke', id: s.id, x: s.x, y: s.h / 2, z: s.z, hx: s.r, hy: s.h / 2, range: 90 });
-  for (const l of m.landmarks || []) out.push({ label: 'landmark', id: l.id, x: l.x, y: l.y, z: l.z, hx: l.hx, hy: l.hy, range: 250 });
+  for (const l of m.landmarks || []) out.push({ label: 'landmark', id: l.id, x: l.x, y: l.y, z: l.z, hx: l.hx, hy: l.hy, range: l.range || 250 });
   for (const d of m.defects || []) out.push({ label: 'defect', id: d.id, x: d.x, y: d.y, z: d.z, hx: d.size / 2, hy: d.size / 2, range: 40 });
   cache.set(config, out);
   return out;
@@ -48,11 +49,40 @@ export function smokeBlocks(config, pos, o) {
   return false;
 }
 
+// Dinding peta realistis: korban di balik tembok dan cacat di sisi lain gedung tidak terlihat. Garis dari kamera ke benda
+// tidak boleh menembus collider (kotak AABB, scene.json). Ujung garis dipendekkan WALL_SLACK supaya dinding tempat benda
+// menempel (korban di dekat tembok, cacat di fasad) tidak ikut menghalangi. Termal tidak menembus dinding.
+const WALL_LABELS = { person: true, defect: true };
+const WALL_SLACK = 0.9;
+export function wallBlocks(config, pos, o) {
+  const real = config.realScene;
+  if (!real || !real.colliders || !WALL_LABELS[o.label]) return false;
+  const dx = o.x - pos[0], dy = o.y - pos[1], dz = o.z - pos[2], len = Math.hypot(dx, dy, dz);
+  if (len <= WALL_SLACK * 2) return false;
+  const t1 = 1 - WALL_SLACK / len; // bagian garis yang diperiksa: 0..t1
+  const cols = real.colliders;
+  for (let i = 0; i < cols.length; i++) {
+    const c = cols[i];
+    let t0 = 0, t = t1, ok = true;
+    for (let a = 0; a < 3 && ok; a++) {
+      const p0 = a === 0 ? pos[0] : a === 1 ? pos[1] : pos[2], d = a === 0 ? dx : a === 1 ? dy : dz;
+      if (Math.abs(d) < 1e-9) { if (p0 < c.min[a] || p0 > c.max[a]) ok = false; continue; }
+      let ta = (c.min[a] - p0) / d, tb = (c.max[a] - p0) / d;
+      if (ta > tb) { const x = ta; ta = tb; tb = x; }
+      if (ta > t0) t0 = ta;
+      if (tb < t) t = tb;
+      if (t0 > t) ok = false;
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
 // pose: { pos, yaw, pitch } (pitch = gimbal angle). opts.thermal ignores smoke.
 export function visibleObjects(pose, config, opts = {}) {
   const objs = worldObjects(config);
   if (!objs.length) return [];
-  return visibleList(pose, objs, opts.thermal ? null : (o) => smokeBlocks(config, pose.pos, o));
+  return visibleList(pose, objs, (o) => (!opts.thermal && smokeBlocks(config, pose.pos, o)) || wallBlocks(config, pose.pos, o));
 }
 
 // extra: boxes added by the player in freeroam ({x, z}). opts: { pitch, thermal }.

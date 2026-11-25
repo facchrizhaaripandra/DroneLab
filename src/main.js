@@ -76,7 +76,7 @@ const drone = createDrone(scene);
 let worldWater = makeWater();  // air di dunia yang sedang dimuat (water.js)
 newSim();
 // Hanya saat npm run dev: akses simulasi dari konsol browser untuk uji coba (window.__dronelab.sim).
-if (import.meta.env && import.meta.env.DEV) window.__dronelab = { get sim() { return sim; }, get water() { return worldWater; }, get config() { return config; }, get physics() { return physics; }, scene, THREE };
+if (import.meta.env && import.meta.env.DEV) window.__dronelab = { get sim() { return sim; }, get water() { return worldWater; }, get config() { return config; }, get physics() { return physics; }, get session() { return session; }, scene, THREE };
 const chase = new FollowCamera(camera);
 const input = createInput();
 const autopilot = new Autopilot();
@@ -254,7 +254,7 @@ function loadWorld(cfg) {
   config.wind = randomWind();
   config.clouds = { cover: 0.2 + Math.random() * 0.45, seed: Math.random() * 10 };
   world = buildWorld(scene, config);
-  worldWater = makeWater({ grid: config.realScene ? config.realScene.water : null, zones: missionWaterZones(config.mission) });
+  worldWater = makeWater({ grid: config.realScene ? config.realScene.water : null, zones: config.realScene ? [] : missionWaterZones(config.mission) }); // peta realistis: air dari grid scene.json
   world.setShadows(aq.effective(settings.graphics).shadows);
   aq.holdFor(4); // a new world compiles shaders and warms caches: do not judge FPS yet
   seenHits = 0;
@@ -395,11 +395,35 @@ async function startMission(def, variant) {
   } else {
     cfg = makeMissionConfig(def.id, 42);
   }
+  if (cfg.scene) { // misi utama di peta realistis: muat peta Blender-nya dulu
+    const prepared = await loadMissionScene(cfg, def);
+    if (!prepared) return;
+    cfg = realSceneConfig(cfg, prepared);
+  }
   loadWorld(cfg);
   const run = new MissionRun(def.id, config, (type, e) => { if (runId) gateway.event(runId, e); });
   run.onNotice = toast;
   session = { kind: 'mission', def, variant, run, runId, battery: new Battery(config.battery), extraBoxes: [], marks: [] };
   enterPlay(HINT_CONTEXT[def.id] || 'latihan', variant && def.variants && def.variants.length > 1 ? `${def.title} (${variant})` : def.title);
+}
+
+// Memuat peta realistis untuk satu misi. Mengembalikan peta siap pakai, atau null (dan menampilkan layar gagal).
+async function loadMissionScene(cfg, def) {
+  const list = await loadSceneIndex();
+  const entry = list.find((e) => e.id === cfg.scene) || { id: cfg.scene, title: cfg.scene };
+  const title = (cfg.scenario && cfg.scenario.title) || entry.title;
+  menu.open({ title: 'Memuat misi...', subtitle: `${def.title}: ${title}${entry.glb_mb ? ` (${entry.glb_mb} MB)` : ''}`, items: [] });
+  try {
+    const loaded = await loadScene(cfg.scene, (p) => {
+      const sub = document.querySelector('#stage .card .sub');
+      if (sub) sub.textContent = `${def.title}: ${title}: ${Math.round(p * 100)}%`;
+    });
+    return prepareScene(loaded);
+  } catch (err) {
+    console.warn('Scene failed to load:', err);
+    menu.open({ title: 'Peta gagal dimuat', subtitle: `${title}: ${err && err.message ? err.message : err}`, items: [{ label: 'Kembali', action: showMissions }], onBack: showMissions });
+    return null;
+  }
 }
 
 function startFreeroam() {

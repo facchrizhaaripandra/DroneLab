@@ -354,16 +354,16 @@ export function buildWorld(scene, config) {
     mesh.position.set(b.x, b.y0 + b.h / 2, b.z); mesh.castShadow = mesh.receiveShadow = true;
     root.add(mesh);
   }
-  if (m.structure && m.variant === 'jembatan') { // jembatan M5: aspal, kerb, pagar, lampu, gelagar, kepala pilar
+  if (m.structure && m.variant === 'jembatan' && !real) { // (peta realistis: jembatannya sudah ada di model) // jembatan M5: aspal, kerb, pagar, lampu, gelagar, kepala pilar
     const br = bridgeLayout(m.structure);
     const bm = partsMesh(br.parts); if (bm) root.add(bm);
     for (const c of br.colliders) colliders.push(c);
   }
   const flat = (geo, color, x, y, z) => { // a flat shape on the ground
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
-    mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y, z); mesh.receiveShadow = true; root.add(mesh); return mesh;
+    mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y + (real ? groundAt(x, z) : 0), z); mesh.receiveShadow = true; root.add(mesh); return mesh; // peta realistis: tanah tidak rata
   };
-  for (const l of m.landmarks || []) {
+  for (const l of real ? [] : m.landmarks || []) { // peta realistis: puncak, danau, kolam sudah ada di model
     if (l.kind === 'peak') {
       const body = new THREE.Mesh(new THREE.ConeGeometry(l.r, l.h, 16), new THREE.MeshLambertMaterial({ color: 0x7d746a }));
       body.position.set(l.x, l.h / 2, l.z); body.castShadow = true;
@@ -385,11 +385,11 @@ export function buildWorld(scene, config) {
       root.add(body, head);
     }
     // Api: lidah api shader, cahaya, bara; asap naik terbawa angin (fire.js). Bidang hangus tetap digambar di tanah.
-    for (const f of m.fires) {
+    if (!real) for (const f of m.fires) { // peta realistis: api dan arang digambar dari scene.json (real.fires)
       flat(new THREE.CircleGeometry(f.r, 24), 0x241510, f.x, 0.05, f.z);
       fire.add({ x: f.x, y: 0.05, z: f.z, r: f.r, h: 1.5 + f.r * 0.75, smoke: false });
     }
-    for (const sm of m.smoke) fire.add({ x: sm.x, y: 0.5, z: sm.z, r: sm.r, h: 2, smokeH: sm.h * 1.6, flame: false });
+    for (const sm of m.smoke) fire.add({ x: sm.x, y: (real ? groundAt(sm.x, sm.z) : 0) + 0.5, z: sm.z, r: sm.r, h: 2, smokeH: sm.h * 1.6, flame: false });
     const safe = flat(new THREE.CircleGeometry(m.safe.r, 24), 0x2ea66b, m.safe.x, 0.06, m.safe.z);
     safe.material = new THREE.MeshBasicMaterial({ color: 0x2ea66b });
   }
@@ -397,13 +397,13 @@ export function buildWorld(scene, config) {
   // M3: the field is a grid of cells. Colors show the dose (see setFieldDose).
   if (m.field) {
     const f = m.field, agri = makeAgri(m), c = f.cell;
-    flat(new THREE.PlaneGeometry(m.river.max[0] - m.river.min[0], m.river.max[1] - m.river.min[1]), 0x4a90d9, (m.river.min[0] + m.river.max[0]) / 2, 0.03, (m.river.min[1] + m.river.max[1]) / 2);
+    if (m.river) flat(new THREE.PlaneGeometry(m.river.max[0] - m.river.min[0], m.river.max[1] - m.river.min[1]), 0x4a90d9, (m.river.min[0] + m.river.max[0]) / 2, 0.03, (m.river.min[1] + m.river.max[1]) / 2);
     const geo = new THREE.PlaneGeometry(c * 0.94, c * 0.94); geo.rotateX(-Math.PI / 2);
     field = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }), agri.nx * agri.nz);
     field.frustumCulled = false;
     for (let i = 0; i < agri.nx; i++) for (let j = 0; j < agri.nz; j++) {
       const idx = i * agri.nz + j;
-      _m.compose(_p.set(f.min[0] + (i + 0.5) * c, 0.08, f.min[1] + (j + 0.5) * c), _q.identity(), _s.set(1, 1, 1));
+      _m.compose(_p.set(f.min[0] + (i + 0.5) * c, f.y ?? 0.08, f.min[1] + (j + 0.5) * c), _q.identity(), _s.set(1, 1, 1)); // f.y: di atas permukaan air sawah
       field.setMatrixAt(idx, _m);
       const cx = f.min[0] + (i + 0.5) * c, cz = f.min[1] + (j + 0.5) * c;
       const zone = m.noSpray.find((r) => cx >= r.min[0] && cx <= r.max[0] && cz >= r.min[1] && cz <= r.max[1]);
@@ -442,9 +442,10 @@ export function buildWorld(scene, config) {
     const m = config.mission;
     const disc = (spot, color) => {
       const d = new THREE.Mesh(new THREE.CircleGeometry(spot.r, 32), new THREE.MeshBasicMaterial({ color }));
-      d.rotation.x = -Math.PI / 2; d.position.set(spot.x, 0.06, spot.z);
+      const g = real ? groundAt(spot.x, spot.z) : 0;
+      d.rotation.x = -Math.PI / 2; d.position.set(spot.x, 0.06 + g, spot.z);
       const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 14, 8), new THREE.MeshBasicMaterial({ color }));
-      beacon.position.set(spot.x, 7, spot.z);
+      beacon.position.set(spot.x, 7 + g, spot.z);
       root.add(d, beacon);
     };
     disc(m.pickup, 0xf5b700);
@@ -452,8 +453,9 @@ export function buildWorld(scene, config) {
     const zoneMat = new THREE.MeshBasicMaterial({ color: 0xd64545, transparent: true, opacity: 0.25, depthWrite: false });
     for (const z of m.noFly) {
       const w = z.max[0] - z.min[0], d = z.max[1] - z.min[1];
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 40, d), zoneMat);
-      mesh.position.set((z.min[0] + z.max[0]) / 2, 20, (z.min[1] + z.max[1]) / 2);
+      const zh = real ? 90 : 40; // kota: gedung setinggi 45 m, zona harus lebih tinggi
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, zh, d), zoneMat);
+      mesh.position.set((z.min[0] + z.max[0]) / 2, zh / 2 + (real ? groundAt((z.min[0] + z.max[0]) / 2, (z.min[1] + z.max[1]) / 2) : 0), (z.min[1] + z.max[1]) / 2);
       root.add(mesh);
     }
   }

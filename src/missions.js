@@ -151,12 +151,12 @@ export class MissionRun {
     let f = false;
     for (let i = 0; i < m.fires.length; i++) {
       const z = m.fires[i];
-      if (sim.pos[1] < FIRE_H && Math.hypot(sim.pos[0] - z.x, sim.pos[2] - z.z) < z.r) f = true;
+      if (sim.pos[1] < (z.y || 0) + FIRE_H && Math.hypot(sim.pos[0] - z.x, sim.pos[2] - z.z) < z.r) f = true; // z.y: alas api (peta realistis)
     }
     if (f !== this.inFire) { this.inFire = f; this.record(f ? 'zone_enter' : 'zone_exit', sim, { kind: 'fire' }); if (f) this.onNotice('Zona api! Drone terbakar, naik atau menjauh'); }
     if (f) { // damage is applied 4 times a second, not every step
       this.burnAcc += dt;
-      if (this.burnAcc >= 0.25 && sim.damage) {
+      if (this.burnAcc >= 0.25 && sim.damage && !this.config.realScene) { // peta realistis: panas dari api scene sudah merusak (main.js)
         const ch = sim.damage.burn(BURN_RATE * this.burnAcc);
         this.burnAcc = 0;
         if (ch.length && sim.onDamage) sim.onDamage(ch);

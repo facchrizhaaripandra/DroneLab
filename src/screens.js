@@ -3,7 +3,12 @@ import { esc } from './ui.js';
 import { keyLabel, DEFAULT_KEYS } from './bindings.js';
 import { RAMP_NAMES, PRESET_NAMES } from './settings.js';
 
-const VARIANT = { gedung: 'gedung', hutan: 'hutan', hotel: 'hotel', gunung: 'gunung', jembatan: 'jembatan', lahan: 'lahan' };
+// Varian misi: nama biasa = peta realistis (public/scenes), "-acak" / "acak" / "lahan" = misi prosedural lama.
+export function variantLabel(v) {
+  if (v === 'acak') return 'acak';
+  if (v === 'lahan') return 'lahan (acak)';
+  return v.endsWith('-acak') ? `${v.slice(0, -5)} (acak)` : `${v} (peta realistis)`;
+}
 const TIER = { latihan: 'Latihan', utama: 'Misi utama' };
 const TIER_NOTE = { latihan: 'tanpa AI, skor tidak resmi', utama: 'skor dari gateway' };
 
@@ -31,7 +36,7 @@ export function missionSpec(list, gatewayMode, cb) {
       // A mission with variants gets one entry per variant (gedung / hutan, hotel / gunung, ...).
       for (const v of m.variants && m.variants.length > 1 ? m.variants : [null]) {
         items.push({
-          label: v ? `${m.title}: ${VARIANT[v] || v}` : m.title,
+          label: v ? `${m.title}: ${variantLabel(v)}` : m.title,
           note: m.available ? `acuan ${String(Math.round(m.par_time_s / 6) / 10).replace('.', ',')} menit` : 'belum tersedia',
           enabled: m.available, action: () => cb.start(m, v || (m.variants && m.variants[0]) || undefined),
         });

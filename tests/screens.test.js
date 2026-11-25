@@ -23,7 +23,8 @@ test('main menu has the six spec entries; all entries are enabled', () => {
 test('mission list: every mission playable, one entry per variant', () => {
   const s = missionSpec(MISSIONS, 'stub', { start: noop, back: noop });
   const playable = s.items.filter((i) => i.enabled !== false && i.label !== 'Kembali');
-  assert.equal(playable.length, 11); // 3 practice + M1 x2 + M2 x2 + M3 + M4 + M5 x2
+  assert.equal(playable.length, 19); // 3 latihan + 16 varian utama: M1, M2, M5 masing-masing 2 peta realistis + 2 acak, M3 dan M4 masing-masing 1 + 1 acak
+  assert.ok(playable.some((i) => /sawah \(peta realistis\)/.test(i.label)) && playable.some((i) => /lahan \(acak\)/.test(i.label)));
   assert.match(s.subtitle, /lokal/);
   assert.match(missionSpec(MISSIONS, 'online', { start: noop, back: noop }).subtitle, /resmi/);
 });
