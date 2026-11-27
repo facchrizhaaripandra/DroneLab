@@ -1,2 +1,24 @@
+# Node
 node_modules
 dist
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration and data
+.env
+*.db
+*.sqlite*
+backend/data/
+backend/results/
+
+# Temporary files
+_to_delete/
+*.blend1
+*.log
+Thumbs.db
+.DS_Store

@@ -1,0 +1,30 @@
+{
+  "additionalProperties": true,
+  "description": "A mission event (photo, mark, drop, spray, wind, ...). Extra fields are kept as sent.",
+  "properties": {
+    "t_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "ge": 0,
+      "title": "T Ms"
+    },
+    "type": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t_ms",
+    "type"
+  ],
+  "title": "Event",
+  "type": "object"
+}

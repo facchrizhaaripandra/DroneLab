@@ -12,6 +12,12 @@ npm run bench    # biaya dan alokasi kode per langkah (fisika, skrip, misi)
 npm run mock     # mock gateway di http://localhost:8000 (MOCK_AI=down untuk mensimulasikan AI mati)
 ```
 
+## Backend
+
+Gateway, mesin misi, dan penilaian resmi ada di `backend/` (Python). Cara menjalankan, tes, drone tiruan, latensi, dan Docker: [`backend/README.md`](backend/README.md). Daftar jalur: [`docs/api.md`](docs/api.md).
+
+Gateway memakai port 8000, jadi jalankan **salah satu** saja: gateway Python atau `npm run mock`. Setelah mengubah titik misi, bobot, atau rumus skor, jalankan ulang `node scripts/export_worlds.mjs` dan `node scripts/make_parity_cases.mjs`, lalu samakan rumus di `backend/app/scoring/`.
+
 ## Kontrol
 
 | Aksi | Keyboard | Controller (Mode 2) |

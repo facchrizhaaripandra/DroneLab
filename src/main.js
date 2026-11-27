@@ -403,6 +403,7 @@ async function startMission(def, variant) {
   loadWorld(cfg);
   const run = new MissionRun(def.id, config, (type, e) => { if (runId) gateway.event(runId, e); });
   run.onNotice = toast;
+  if (runId && config.wind) gateway.event(runId, { t_ms: 0, type: 'wind', wind: config.wind }); // the scorer needs this run's wind
   session = { kind: 'mission', def, variant, run, runId, battery: new Battery(config.battery), extraBoxes: [], marks: [] };
   enterPlay(HINT_CONTEXT[def.id] || 'latihan', variant && def.variants && def.variants.length > 1 ? `${def.title} (${variant})` : def.title);
 }

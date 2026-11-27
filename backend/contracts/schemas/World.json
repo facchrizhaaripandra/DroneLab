@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "Limits": {
+      "description": "Map rectangle. Leaving it fails the mission.",
+      "properties": {
+        "minX": {
+          "title": "Minx",
+          "type": "number"
+        },
+        "maxX": {
+          "title": "Maxx",
+          "type": "number"
+        },
+        "minZ": {
+          "title": "Minz",
+          "type": "number"
+        },
+        "maxZ": {
+          "title": "Maxz",
+          "type": "number"
+        }
+      },
+      "required": [
+        "minX",
+        "maxX",
+        "minZ",
+        "maxZ"
+      ],
+      "title": "Limits",
+      "type": "object"
+    }
+  },
+  "description": "A stored world, as the API returns it.",
+  "properties": {
+    "mission_id": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "variant": {
+      "pattern": "^[A-Za-z0-9-]{1,40}$",
+      "title": "Variant",
+      "type": "string"
+    },
+    "seed": {
+      "default": 42,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits"
+    },
+    "config": {
+      "additionalProperties": true,
+      "title": "Config",
+      "type": "object"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "builtin": {
+      "title": "Builtin",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "mission_id",
+    "variant",
+    "limits",
+    "config",
+    "id",
+    "builtin"
+  ],
+  "title": "World",
+  "type": "object"
+}

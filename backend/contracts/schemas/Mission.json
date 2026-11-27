@@ -1,0 +1,72 @@
+{
+  "properties": {
+    "id": {
+      "pattern": "^[a-z0-9_]{1,40}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "desc": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Desc",
+      "type": "string"
+    },
+    "scorer": {
+      "title": "Scorer",
+      "type": "string"
+    },
+    "par_time_s": {
+      "exclusiveMinimum": 0,
+      "maximum": 36000,
+      "title": "Par Time S",
+      "type": "number"
+    },
+    "variants": {
+      "items": {
+        "pattern": "^[A-Za-z0-9-]{1,40}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Variants",
+      "type": "array"
+    },
+    "weights": {
+      "additionalProperties": {
+        "maximum": 1000,
+        "minimum": 0,
+        "type": "number"
+      },
+      "title": "Weights",
+      "type": "object"
+    },
+    "gugur": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Gugur",
+      "type": "array"
+    },
+    "builtin": {
+      "title": "Builtin",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "scorer",
+    "par_time_s",
+    "variants",
+    "weights",
+    "builtin"
+  ],
+  "title": "Mission",
+  "type": "object"
+}

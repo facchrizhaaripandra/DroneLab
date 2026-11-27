@@ -1,0 +1,7 @@
+fastapi~=0.165
+uvicorn[standard]~=0.54
+pydantic~=2.14
+httpx~=0.29
+websockets~=17.4
+sqlmodel~=0.0.50
+matplotlib~=3.11

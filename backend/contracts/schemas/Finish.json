@@ -1,0 +1,63 @@
+{
+  "properties": {
+    "t_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "ge": 0,
+      "title": "T Ms"
+    },
+    "battery": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "ge": 0,
+      "le": 100,
+      "title": "Battery"
+    },
+    "reason": {
+      "enum": [
+        "completed",
+        "timeout",
+        "battery",
+        "crashed",
+        "drowned",
+        "out_of_area"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "progress": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Progress"
+    }
+  },
+  "required": [
+    "t_ms",
+    "battery",
+    "reason"
+  ],
+  "title": "Finish",
+  "type": "object"
+}

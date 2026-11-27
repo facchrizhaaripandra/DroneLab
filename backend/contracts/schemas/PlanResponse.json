@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "PlanStats": {
+      "properties": {
+        "length_m": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Length M"
+        },
+        "est_time_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Est Time S"
+        },
+        "est_energy": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Est Energy"
+        },
+        "coverage_pct": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Coverage Pct"
+        },
+        "compute_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Compute Ms"
+        }
+      },
+      "required": [
+        "length_m",
+        "est_time_s",
+        "est_energy",
+        "coverage_pct",
+        "compute_ms"
+      ],
+      "title": "PlanStats",
+      "type": "object"
+    },
+    "Waypoint": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Y"
+        },
+        "z": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Z"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "ge": 0,
+          "title": "Speed"
+        },
+        "action": {
+          "enum": [
+            "fly",
+            "spray",
+            "drop",
+            "capture",
+            "hover"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y",
+        "z",
+        "speed",
+        "action"
+      ],
+      "title": "Waypoint",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "waypoints": {
+      "items": {
+        "$ref": "#/$defs/Waypoint"
+      },
+      "title": "Waypoints",
+      "type": "array"
+    },
+    "stats": {
+      "$ref": "#/$defs/PlanStats"
+    }
+  },
+  "required": [
+    "waypoints",
+    "stats"
+  ],
+  "title": "PlanResponse",
+  "type": "object"
+}

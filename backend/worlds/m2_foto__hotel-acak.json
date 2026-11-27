@@ -1,0 +1,126 @@
+{
+ "mission_id": "m2_foto",
+ "variant": "hotel-acak",
+ "seed": 42,
+ "limits": {
+  "minX": -100,
+  "maxX": 100,
+  "minZ": -100,
+  "maxZ": 100
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [
+   {
+    "x": -3.33,
+    "z": -48,
+    "w": 30,
+    "d": 14,
+    "h": 22,
+    "shade": 0.7,
+    "type": "hotel"
+   },
+   {
+    "x": -27.33,
+    "z": -42,
+    "w": 12,
+    "d": 10,
+    "h": 12,
+    "shade": 0.4,
+    "type": "hotel"
+   }
+  ],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "solids": [],
+  "mission": {
+   "variant": "hotel",
+   "landmarks": [
+    {
+     "id": "hotel",
+     "name": "Fasad hotel",
+     "kind": "box",
+     "x": -3.33,
+     "y": 11,
+     "z": -41,
+     "hx": 15,
+     "hy": 11
+    },
+    {
+     "id": "kolam",
+     "name": "Kolam renang",
+     "kind": "pool",
+     "x": 2.67,
+     "y": 0.2,
+     "z": -28,
+     "hx": 6,
+     "hy": 2,
+     "w": 12,
+     "d": 7
+    },
+    {
+     "id": "atap",
+     "name": "Atap hotel",
+     "kind": "roof",
+     "x": -3.33,
+     "y": 22,
+     "z": -48,
+     "hx": 15,
+     "hy": 2
+    }
+   ],
+   "sun": {
+    "az": 164,
+    "el": 44
+   },
+   "shots": [
+    {
+     "id": "s1",
+     "type": "photo",
+     "kind": "wide",
+     "subject": "hotel",
+     "areaRange": [
+      0.05,
+      0.35
+     ],
+     "label": "Foto pembuka lebar: Fasad hotel"
+    },
+    {
+     "id": "s2",
+     "type": "photo",
+     "kind": "detail",
+     "subject": "kolam",
+     "areaRange": [
+      0.1,
+      0.6
+     ],
+     "label": "Foto detail: Kolam renang"
+    },
+    {
+     "id": "s3",
+     "type": "video",
+     "kind": "orbit",
+     "subject": "hotel",
+     "minDur": 8,
+     "maxDur": 16,
+     "label": "Video orbit 10 detik: Fasad hotel"
+    },
+    {
+     "id": "s4",
+     "type": "video",
+     "kind": "reveal",
+     "subject": "hotel",
+     "minDur": 5,
+     "maxDur": 14,
+     "label": "Video reveal: naik sambil menjauh"
+    }
+   ]
+  }
+ }
+}

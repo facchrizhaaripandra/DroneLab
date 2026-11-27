@@ -1,0 +1,19 @@
+# docker compose up --build     (from the backend folder)
+# The planner (role B, port 8001) and detector (role C, port 8002) run outside this file for now.
+services:
+  gateway:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000" # there is no authentication: reachable from this computer only
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      PLANNER_URL: ${PLANNER_URL:-http://host.docker.internal:8001}
+      DETECTOR_URL: ${DETECTOR_URL:-http://host.docker.internal:8002}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - gateway-data:/srv/data
+    restart: unless-stopped
+
+volumes:
+  gateway-data:

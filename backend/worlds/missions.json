@@ -1,0 +1,119 @@
+[
+ {
+  "id": "m1_sar",
+  "title": "Pencarian dan penyelamatan",
+  "desc": "Temukan semua korban sebelum baterai habis. Tekan M di dekat korban untuk menandai, T untuk mode panas. Hindari zona api.",
+  "scorer": "sar",
+  "par_time_s": 300,
+  "variants": [
+   "gedung",
+   "hutan",
+   "gedung-acak",
+   "hutan-acak"
+  ],
+  "weights": {
+   "found": 40,
+   "time": 20,
+   "coverage": 15,
+   "safety": 15,
+   "precision": 10
+  },
+  "gugur": [
+   "time",
+   "coverage"
+  ]
+ },
+ {
+  "id": "m2_foto",
+  "title": "Fotografi dan videografi",
+  "desc": "Penuhi daftar bidikan: foto (F) dan video (R mulai/berhenti). Subjek di sepertiga, horizon rata, diam saat foto.",
+  "scorer": "photo",
+  "par_time_s": 300,
+  "variants": [
+   "hotel",
+   "gunung",
+   "hotel-acak",
+   "gunung-acak"
+  ],
+  "weights": {
+   "subject": 30,
+   "thirds": 20,
+   "horizon": 10,
+   "sharp": 15,
+   "light": 10,
+   "variation": 15,
+   "vsubject": 30,
+   "smooth": 30,
+   "cinematic": 20,
+   "duration": 10,
+   "vsafety": 10,
+   "photoShare": 0.6
+  },
+  "gugur": []
+ },
+ {
+  "id": "m3_agri",
+  "title": "Penyiraman dan pupuk",
+  "desc": "Semprot lahan merata (tahan G), hindari rumah dan sungai. Tangki terbatas: isi ulang otomatis saat mendarat di H.",
+  "scorer": "agri",
+  "par_time_s": 300,
+  "variants": [
+   "sawah",
+   "lahan"
+  ],
+  "weights": {
+   "coverage": 40,
+   "waste": 20,
+   "efficiency": 20,
+   "envelope": 10,
+   "tank": 10
+  },
+  "gugur": [
+   "efficiency",
+   "tank"
+  ]
+ },
+ {
+  "id": "m4_delivery",
+  "title": "Pengiriman barang",
+  "desc": "Ambil paket di titik kuning, antar ke zona hijau, hindari zona terlarang merah.",
+  "scorer": "delivery",
+  "par_time_s": 180,
+  "variants": [
+   "kota",
+   "acak"
+  ],
+  "weights": {
+   "accuracy": 30,
+   "cargo": 20,
+   "time": 20,
+   "battery": 15,
+   "zones": 15
+  },
+  "gugur": []
+ },
+ {
+  "id": "m5_inspeksi",
+  "title": "Inspeksi bangunan",
+  "desc": "Foto semua sisi struktur dari jarak 3 sampai 8 m, foto (F) dan tandai (M) tiap cacat. Hasilnya laporan inspeksi.",
+  "scorer": "inspection",
+  "par_time_s": 300,
+  "variants": [
+   "gedung",
+   "jembatan",
+   "gedung-acak",
+   "jembatan-acak"
+  ],
+  "weights": {
+   "facade": 30,
+   "defects": 30,
+   "distance": 15,
+   "quality": 10,
+   "report": 15
+  },
+  "gugur": [
+   "distance",
+   "report"
+  ]
+ }
+]

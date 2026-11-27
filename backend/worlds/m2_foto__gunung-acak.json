@@ -1,0 +1,126 @@
+{
+ "mission_id": "m2_foto",
+ "variant": "gunung-acak",
+ "seed": 42,
+ "limits": {
+  "minX": -100,
+  "maxX": 100,
+  "minZ": -100,
+  "maxZ": 100
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "solids": [
+   {
+    "x": -6.24,
+    "z": -75,
+    "w": 28,
+    "d": 28,
+    "h": 16,
+    "y0": 0,
+    "hidden": true
+   },
+   {
+    "x": -6.24,
+    "z": -75,
+    "w": 15,
+    "d": 15,
+    "h": 16,
+    "y0": 16,
+    "hidden": true
+   },
+   {
+    "x": -6.24,
+    "z": -75,
+    "w": 2,
+    "d": 2,
+    "h": 16,
+    "y0": 32,
+    "hidden": true
+   }
+  ],
+  "mission": {
+   "variant": "gunung",
+   "landmarks": [
+    {
+     "id": "puncak",
+     "name": "Puncak",
+     "kind": "peak",
+     "x": -6.24,
+     "y": 25,
+     "z": -75,
+     "hx": 30,
+     "hy": 25,
+     "r": 30,
+     "h": 50
+    },
+    {
+     "id": "danau",
+     "name": "Danau",
+     "kind": "lake",
+     "x": -44.24,
+     "y": 0.3,
+     "z": -38,
+     "hx": 14,
+     "hy": 3,
+     "r": 14
+    }
+   ],
+   "sun": {
+    "az": 164,
+    "el": 44
+   },
+   "shots": [
+    {
+     "id": "s1",
+     "type": "photo",
+     "kind": "wide",
+     "subject": "puncak",
+     "areaRange": [
+      0.05,
+      0.35
+     ],
+     "label": "Foto pembuka lebar: Puncak"
+    },
+    {
+     "id": "s2",
+     "type": "photo",
+     "kind": "detail",
+     "subject": "danau",
+     "areaRange": [
+      0.1,
+      0.6
+     ],
+     "label": "Foto detail: Danau"
+    },
+    {
+     "id": "s3",
+     "type": "video",
+     "kind": "orbit",
+     "subject": "puncak",
+     "minDur": 8,
+     "maxDur": 16,
+     "label": "Video orbit 10 detik: Puncak"
+    },
+    {
+     "id": "s4",
+     "type": "video",
+     "kind": "reveal",
+     "subject": "puncak",
+     "minDur": 5,
+     "maxDur": 14,
+     "label": "Video reveal: naik sambil menjauh"
+    }
+   ]
+  }
+ }
+}

@@ -199,9 +199,11 @@ function scoreM2(ctx) {
 // ---------------------------------------------------------------- M3
 export function replayAgri(config, log) {
   const a = makeAgri(config.mission);
+  // The simulator draws a new wind for every run and reports it as a 'wind' event; it wins over the config.
+  const wind = log.find((e) => e.type === 'wind')?.wind ?? config.wind;
   for (const e of log) {
     if (e.type === 'refill' && Math.hypot(e.pose.pos[0], e.pose.pos[2]) <= HOME_R + 2) refill(a);
-    else if (e.type === 'sample') sprayStep(a, e, config.wind);
+    else if (e.type === 'sample') sprayStep(a, e, wind);
   }
   return a;
 }

@@ -1,0 +1,41 @@
+{
+  "properties": {
+    "scenario": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Scenario",
+      "type": "string"
+    },
+    "world": {
+      "additionalProperties": true,
+      "title": "World",
+      "type": "object"
+    },
+    "goal": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "items": {},
+          "type": "array"
+        }
+      ],
+      "title": "Goal"
+    },
+    "params": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Params",
+      "type": "object"
+    }
+  },
+  "required": [
+    "scenario",
+    "world",
+    "goal"
+  ],
+  "title": "PlanRequest",
+  "type": "object"
+}

@@ -1,0 +1,113 @@
+{
+ "mission_id": "m2_foto",
+ "variant": "hotel",
+ "seed": 42,
+ "limits": {
+  "minX": -168,
+  "maxX": 168,
+  "minZ": -48.75,
+  "maxZ": 358
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s3_resor_hotel",
+  "scenario": {
+   "title": "Resor hotel tepi laut",
+   "brief": "Buat materi promosi resor: foto dan video fasad hotel serta kolam renang. Cahaya terbaik datang dari arah laut."
+  },
+  "mission": {
+   "variant": "hotel",
+   "sun": {
+    "az": 200,
+    "el": 38
+   },
+   "landmarks": [
+    {
+     "id": "hotel",
+     "name": "Fasad hotel",
+     "kind": "box",
+     "x": 0,
+     "y": -5,
+     "z": 77,
+     "hx": 31,
+     "hy": 7
+    },
+    {
+     "id": "kolam",
+     "name": "Kolam renang",
+     "kind": "pool",
+     "x": 11,
+     "y": -10.2,
+     "z": 116.5,
+     "hx": 19,
+     "hy": 8,
+     "w": 38,
+     "d": 15
+    },
+    {
+     "id": "atap",
+     "name": "Atap hotel",
+     "kind": "roof",
+     "x": 0,
+     "y": 0.4,
+     "z": 77,
+     "hx": 30,
+     "hy": 2
+    }
+   ],
+   "shots": [
+    {
+     "id": "s1",
+     "type": "photo",
+     "kind": "wide",
+     "subject": "hotel",
+     "areaRange": [
+      0.05,
+      0.35
+     ],
+     "label": "Foto pembuka lebar: Fasad hotel"
+    },
+    {
+     "id": "s2",
+     "type": "photo",
+     "kind": "detail",
+     "subject": "kolam",
+     "areaRange": [
+      0.1,
+      0.6
+     ],
+     "label": "Foto detail: Kolam renang"
+    },
+    {
+     "id": "s3",
+     "type": "video",
+     "kind": "orbit",
+     "subject": "hotel",
+     "minDur": 8,
+     "maxDur": 16,
+     "label": "Video orbit 10 detik: Fasad hotel"
+    },
+    {
+     "id": "s4",
+     "type": "video",
+     "kind": "reveal",
+     "subject": "hotel",
+     "minDur": 5,
+     "maxDur": 14,
+     "label": "Video reveal: naik sambil menjauh"
+    }
+   ]
+  }
+ }
+}

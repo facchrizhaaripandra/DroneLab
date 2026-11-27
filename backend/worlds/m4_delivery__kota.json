@@ -1,0 +1,65 @@
+{
+ "mission_id": "m4_delivery",
+ "variant": "kota",
+ "seed": 42,
+ "limits": {
+  "minX": -341,
+  "maxX": 55,
+  "minZ": -322,
+  "maxZ": 74
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s6_kota_pengiriman",
+  "scenario": {
+   "title": "Kawasan perkotaan",
+   "brief": "Ambil paket di depo, antar ke klinik. Dua zona terlarang menghalangi jalan lurus."
+  },
+  "mission": {
+   "pickup": {
+    "x": -29,
+    "z": 2,
+    "r": 3
+   },
+   "drop": {
+    "x": -57,
+    "z": -125,
+    "r": 4
+   },
+   "noFly": [
+    {
+     "min": [
+      -60,
+      -72
+     ],
+     "max": [
+      -36,
+      -48
+     ]
+    },
+    {
+     "min": [
+      -50,
+      -110
+     ],
+     "max": [
+      -26,
+      -90
+     ]
+    }
+   ],
+   "payload_kg": 1.5
+  }
+ }
+}

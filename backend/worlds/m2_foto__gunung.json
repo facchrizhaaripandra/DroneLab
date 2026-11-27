@@ -1,0 +1,106 @@
+{
+ "mission_id": "m2_foto",
+ "variant": "gunung",
+ "seed": 42,
+ "limits": {
+  "minX": -538,
+  "maxX": 658,
+  "minZ": -970,
+  "maxZ": 226
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s4_gunung_danau",
+  "scenario": {
+   "title": "Pegunungan dan danau",
+   "brief": "Dokumentasikan puncak gunung dan danau di kakinya untuk film dokumenter alam."
+  },
+  "mission": {
+   "variant": "gunung",
+   "sun": {
+    "az": 190,
+    "el": 42
+   },
+   "landmarks": [
+    {
+     "id": "puncak",
+     "name": "Puncak",
+     "kind": "peak",
+     "x": 260,
+     "y": 400,
+     "z": -632,
+     "hx": 175,
+     "hy": 110,
+     "r": 175,
+     "h": 110,
+     "range": 900
+    },
+    {
+     "id": "danau",
+     "name": "Danau",
+     "kind": "lake",
+     "x": -70,
+     "y": -4,
+     "z": -50,
+     "hx": 60,
+     "hy": 15,
+     "r": 60,
+     "range": 400
+    }
+   ],
+   "shots": [
+    {
+     "id": "s1",
+     "type": "photo",
+     "kind": "wide",
+     "subject": "puncak",
+     "areaRange": [
+      0.05,
+      0.35
+     ],
+     "label": "Foto pembuka lebar: Puncak"
+    },
+    {
+     "id": "s2",
+     "type": "photo",
+     "kind": "detail",
+     "subject": "danau",
+     "areaRange": [
+      0.1,
+      0.6
+     ],
+     "label": "Foto detail: Danau"
+    },
+    {
+     "id": "s3",
+     "type": "video",
+     "kind": "orbit",
+     "subject": "danau",
+     "minDur": 8,
+     "maxDur": 16,
+     "label": "Video orbit 10 detik: Danau"
+    },
+    {
+     "id": "s4",
+     "type": "video",
+     "kind": "reveal",
+     "subject": "puncak",
+     "minDur": 5,
+     "maxDur": 14,
+     "label": "Video reveal: naik sambil menjauh"
+    }
+   ]
+  }
+ }
+}

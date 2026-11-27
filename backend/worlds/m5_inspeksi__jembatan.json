@@ -1,0 +1,241 @@
+{
+ "mission_id": "m5_inspeksi",
+ "variant": "jembatan",
+ "seed": 42,
+ "limits": {
+  "minX": -71,
+  "maxX": 251,
+  "minZ": -168,
+  "maxZ": 168
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s7b_inspeksi_jembatan",
+  "scenario": {
+   "title": "Jembatan gantung (inspeksi)",
+   "brief": "Periksa kedua sisi dek jembatan gantung dari atas sungai. Foto dari jarak 3 sampai 8 m dan tandai setiap cacat."
+  },
+  "mission": {
+   "variant": "jembatan",
+   "structure": {
+    "x": 90,
+    "z": 0,
+    "w": 112,
+    "d": 10.16,
+    "y0": -3.01,
+    "y1": 0.72
+   },
+   "panels": [
+    {
+     "id": 1,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 43.33,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 2,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 62,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 3,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 80.67,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 4,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 99.33,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 5,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 118,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 6,
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "x": 136.67,
+     "y": -1.15,
+     "z": -5.18
+    },
+    {
+     "id": 7,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 43.33,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 8,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 62,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 9,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 80.67,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 10,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 99.33,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 11,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 118,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 12,
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "x": 136.67,
+     "y": -1.15,
+     "z": 5.18
+    },
+    {
+     "id": 13,
+     "face": "E",
+     "nx": 1,
+     "nz": 0,
+     "x": 146.1,
+     "y": -1.15,
+     "z": 0
+    },
+    {
+     "id": 14,
+     "face": "W",
+     "nx": -1,
+     "nz": 0,
+     "x": 33.9,
+     "y": -1.15,
+     "z": 0
+    }
+   ],
+   "defects": [
+    {
+     "id": 1,
+     "kind": "retak",
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "size": 1.04,
+     "x": 136.82,
+     "y": -0.4,
+     "z": 5.18
+    },
+    {
+     "id": 2,
+     "kind": "karat",
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "size": 1.41,
+     "x": 43.72,
+     "y": -0.96,
+     "z": 5.18
+    },
+    {
+     "id": 3,
+     "kind": "retak",
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "size": 1.92,
+     "x": 99.24,
+     "y": -0.47,
+     "z": 5.18
+    },
+    {
+     "id": 4,
+     "kind": "karat",
+     "face": "N",
+     "nx": 0,
+     "nz": -1,
+     "size": 0.68,
+     "x": 117.95,
+     "y": -0.82,
+     "z": -5.18
+    },
+    {
+     "id": 5,
+     "kind": "retak",
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "size": 1.99,
+     "x": 62.4,
+     "y": -0.86,
+     "z": 5.18
+    },
+    {
+     "id": 6,
+     "kind": "karat",
+     "face": "S",
+     "nx": 0,
+     "nz": 1,
+     "size": 1.14,
+     "x": 118.64,
+     "y": -1.58,
+     "z": 5.18
+    }
+   ],
+   "safe": {
+    "min": 3,
+    "max": 8
+   }
+  }
+ }
+}

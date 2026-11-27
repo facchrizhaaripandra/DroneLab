@@ -1,0 +1,163 @@
+{
+ "mission_id": "m1_sar",
+ "variant": "hutan",
+ "seed": 42,
+ "limits": {
+  "minX": -200,
+  "maxX": 96,
+  "minZ": -56.26,
+  "maxZ": 240.98
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s2_hutan_terbakar",
+  "scenario": {
+   "title": "Hutan terbakar",
+   "brief": "Kebakaran hutan memutus jalur pendaki. Temukan mereka di celah pepohonan dan hindari zona api."
+  },
+  "mission": {
+   "variant": "hutan",
+   "area": {
+    "min": [
+     -150,
+     20
+    ],
+    "max": [
+     80,
+     215
+    ]
+   },
+   "victims": [
+    {
+     "id": 1,
+     "x": -49,
+     "z": 46,
+     "y": -9.68
+    },
+    {
+     "id": 2,
+     "x": -13,
+     "z": 103,
+     "y": -6.31
+    },
+    {
+     "id": 3,
+     "x": -97,
+     "z": 184,
+     "y": -21.97
+    },
+    {
+     "id": 4,
+     "x": 41,
+     "z": 208,
+     "y": -24.6
+    }
+   ],
+   "fires": [
+    {
+     "id": 1,
+     "x": -21,
+     "z": 62,
+     "r": 14,
+     "y": -7.53
+    },
+    {
+     "id": 2,
+     "x": 10,
+     "z": 93,
+     "r": 11,
+     "y": -4.22
+    },
+    {
+     "id": 3,
+     "x": -36,
+     "z": 97,
+     "r": 10,
+     "y": -11.66
+    },
+    {
+     "id": 4,
+     "x": -90,
+     "z": 155,
+     "r": 16,
+     "y": -19.66
+    },
+    {
+     "id": 5,
+     "x": 46,
+     "z": 172,
+     "r": 14,
+     "y": -21.26
+    }
+   ],
+   "smoke": [
+    {
+     "id": 1,
+     "x": -49,
+     "z": 46,
+     "r": 8,
+     "h": 30
+    },
+    {
+     "id": 2,
+     "x": -13,
+     "z": 103,
+     "r": 8,
+     "h": 30
+    },
+    {
+     "id": 3,
+     "x": -21,
+     "z": 62,
+     "r": 18,
+     "h": 28
+    },
+    {
+     "id": 4,
+     "x": 10,
+     "z": 93,
+     "r": 15,
+     "h": 28
+    },
+    {
+     "id": 5,
+     "x": -36,
+     "z": 97,
+     "r": 14,
+     "h": 28
+    },
+    {
+     "id": 6,
+     "x": -90,
+     "z": 155,
+     "r": 20,
+     "h": 28
+    },
+    {
+     "id": 7,
+     "x": 46,
+     "z": 172,
+     "r": 18,
+     "h": 28
+    }
+   ],
+   "safe": {
+    "x": 11,
+    "z": 22,
+    "r": 4
+   },
+   "markRadius": 5
+  }
+ }
+}

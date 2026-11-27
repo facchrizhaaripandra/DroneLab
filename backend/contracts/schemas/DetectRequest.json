@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "CameraPose": {
+      "properties": {
+        "pos": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Pos",
+          "type": "array"
+        },
+        "quat": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Quat",
+          "type": "array"
+        },
+        "fov": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Fov"
+        }
+      },
+      "required": [
+        "pos",
+        "quat",
+        "fov"
+      ],
+      "title": "CameraPose",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "image": {
+      "maxLength": 8000000,
+      "minLength": 1,
+      "title": "Image",
+      "type": "string"
+    },
+    "mode": {
+      "default": "normal",
+      "enum": [
+        "normal",
+        "thermal"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "camera_pose": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CameraPose"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "image"
+  ],
+  "title": "DetectRequest",
+  "type": "object"
+}

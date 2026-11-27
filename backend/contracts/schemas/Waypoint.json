@@ -1,0 +1,80 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "integer"
+    },
+    "x": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "X"
+    },
+    "y": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Y"
+    },
+    "z": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Z"
+    },
+    "speed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "ge": 0,
+      "title": "Speed"
+    },
+    "action": {
+      "enum": [
+        "fly",
+        "spray",
+        "drop",
+        "capture",
+        "hover"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Params",
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "x",
+    "y",
+    "z",
+    "speed",
+    "action"
+  ],
+  "title": "Waypoint",
+  "type": "object"
+}

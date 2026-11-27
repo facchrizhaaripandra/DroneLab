@@ -1,0 +1,138 @@
+{
+  "description": "One 10 Hz WebSocket frame.",
+  "properties": {
+    "t_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "ge": 0,
+      "title": "T Ms"
+    },
+    "pos": {
+      "items": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Pos",
+      "type": "array"
+    },
+    "vel": {
+      "items": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Vel",
+      "type": "array"
+    },
+    "yaw": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Yaw"
+    },
+    "roll": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "default": 0,
+      "title": "Roll"
+    },
+    "pitch": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "default": 0,
+      "title": "Pitch"
+    },
+    "gimbal": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "default": -10,
+      "title": "Gimbal"
+    },
+    "battery": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "default": 100,
+      "title": "Battery"
+    },
+    "payload_kg": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "default": 0,
+      "title": "Payload Kg"
+    },
+    "spraying": {
+      "default": false,
+      "title": "Spraying",
+      "type": "boolean"
+    },
+    "collision": {
+      "default": false,
+      "title": "Collision",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "t_ms",
+    "pos",
+    "vel",
+    "yaw"
+  ],
+  "title": "TelemetryFrame",
+  "type": "object"
+}

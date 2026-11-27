@@ -51,6 +51,7 @@ export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocket
   let aiUp = false;   // the gateway reports whether the AI service behind it is alive
   let ws = null;
   let current = null; // 'real' | 'stub' for the run in progress
+  const sending = new Set(); // events still on their way to the real gateway
 
   const api = {
     get mode() { return online ? 'online' : 'stub'; },
@@ -89,11 +90,15 @@ export function createGateway(baseUrl, { fetchImpl = globalThis.fetch, WebSocket
     // Fire and forget: a lost event must never stop the simulation.
     event(run_id, body) {
       if (current !== 'real') return stub.event(run_id, body);
-      return fetchJson(fetchImpl, `${baseUrl}/api/v1/runs/${run_id}/events`, { method: 'POST', body: JSON.stringify(body) }).catch(() => {});
+      const p = fetchJson(fetchImpl, `${baseUrl}/api/v1/runs/${run_id}/events`, { method: 'POST', body: JSON.stringify(body) }).catch(() => {});
+      sending.add(p);
+      p.finally(() => sending.delete(p));
+      return p;
     },
     async finish(run_id, body) {
       closeSocket();
       if (current === 'real') {
+        await Promise.allSettled([...sending]); // the score must not be computed before the last events arrive
         try { return await fetchJson(fetchImpl, `${baseUrl}/api/v1/runs/${run_id}/finish`, { method: 'POST', body: JSON.stringify(body) }); }
         catch { /* fall through: no official score available */ }
         return { offline: true };

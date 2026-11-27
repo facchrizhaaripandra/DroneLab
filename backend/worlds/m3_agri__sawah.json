@@ -1,0 +1,69 @@
+{
+ "mission_id": "m3_agri",
+ "variant": "sawah",
+ "seed": 42,
+ "limits": {
+  "minX": -132.47,
+  "maxX": 122.47,
+  "minZ": -176,
+  "maxZ": 20
+ },
+ "config": {
+  "seed": 42,
+  "bounds": 100,
+  "buildings": [],
+  "obstacles": [],
+  "rings": [],
+  "battery": {
+   "drain_idle": 0.05,
+   "drain_speed": 0.02,
+   "drain_kg": 0.05
+  },
+  "trees": [],
+  "solids": [],
+  "scene": "s5_sawah",
+  "scenario": {
+   "title": "Sawah",
+   "brief": "Semprot petak padi secara merata. Hindari gubuk petani dan perhatikan angin; tangki diisi ulang di H."
+  },
+  "mission": {
+   "variant": "sawah",
+   "field": {
+    "min": [
+     -30,
+     -68
+    ],
+    "max": [
+     0,
+     -40
+    ],
+    "cell": 2,
+    "y": 0.8
+   },
+   "noSpray": [
+    {
+     "min": [
+      -18,
+      -57
+     ],
+     "max": [
+      -12,
+      -49
+     ],
+     "kind": "house"
+    }
+   ],
+   "dose": {
+    "lo": 0.4,
+    "hi": 1.2,
+    "flow": 10,
+    "capacity": 200
+   }
+  },
+  "wind": {
+   "speed": 1.5,
+   "dir": 270,
+   "gust": 0.2
+  }
+ }
+}
